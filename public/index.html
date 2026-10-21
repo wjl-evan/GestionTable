@@ -54,6 +54,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></svg>
             Auto
           </button>
+          <button class="btn ghost small clear-btn" id="unassignAll" title="Retirer toutes les tables de ce service pour recommencer (les réservations fixées et les clients installés restent)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>Tout retirer</span>
+          </button>
         </div>
         <div class="filter-row">
           <div class="filter-chips" id="filters" role="tablist" aria-label="Filtrer les réservations"></div>
@@ -88,6 +92,7 @@
         <span><i class="dot reserved"></i>Réservée</span>
         <span><i class="dot busy"></i>Clients arrivés</span>
         <span><i class="dot merged"></i>Fusionnée</span>
+        <span><i class="dot pinned"></i>Fixée</span>
         <span><i class="dot link"></i>Fusionnable</span>
         <span><i class="dot manual"></i>Lien manuel</span>
       </div>

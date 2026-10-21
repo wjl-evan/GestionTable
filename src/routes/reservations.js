@@ -56,6 +56,23 @@ function setTables(reservation, tableIds, manual = false) {
   reservation.tableIds = tableIds;
   if (manual && tableIds.length) reservation.manualGroup = true;
   else delete reservation.manualGroup;
+  if (!tableIds.length) delete reservation.pinned; // plus de table : plus rien à fixer
+}
+
+/** Réservation fixée à ses tables : on ne la déplace pas sans l'avoir libérée d'abord. */
+function assertNotPinned(reservation) {
+  if (reservation.pinned) {
+    throw httpError(409, `${reservation.name} est fixé·e à ses tables. Touchez « Fixée » pour la libérer avant de la déplacer.`);
+  }
+}
+
+/** Essaie de placer automatiquement une réservation à placer (nouvelle ou changée de service). */
+function autoPlace(reservation) {
+  if (reservation.tableIds.length || !isActive(reservation)) return false;
+  const db = getDb();
+  const placement = autoAssign(db.tables, [reservation], busyTables(reservation), db.groups).get(reservation.id);
+  if (placement) setTables(reservation, placement);
+  return Boolean(placement);
 }
 
 router.get('/', async (req, res) => {
@@ -82,6 +99,7 @@ router.post('/', async (req, res) => {
     createdAt: new Date().toISOString(),
   });
   getDb().reservations.push(r);
+  autoPlace(r); // une table libre lui est attribuée tout de suite (sinon : « à placer »)
   await persist();
   res.status(201).json(r);
 });
@@ -92,11 +110,14 @@ router.put('/:id', async (req, res) => {
   const next = validate(req.body, current);
 
   // Changement de service ou table devenue trop petite → la réservation repasse "à placer"
-  // (sauf regroupement choisi à la main : on a déjà accepté de se serrer)
+  // (sauf regroupement choisi à la main ou réservation fixée : on a déjà accepté de se serrer)
   const moved = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
-  const tooSmall = !current.manualGroup && capacityOf(db.tables, next.tableIds, db.groups) < next.people;
+  const tooSmall = !current.manualGroup && !current.pinned && capacityOf(db.tables, next.tableIds, db.groups) < next.people;
   Object.assign(current, next);
-  if (moved || tooSmall) setTables(current, []);
+  if (moved || tooSmall) {
+    setTables(current, []);
+    autoPlace(current); // nouvelle table cherchée automatiquement
+  }
   await persist();
   res.json(current);
 });
@@ -117,6 +138,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/assign', async (req, res) => {
   const db = getDb();
   const reservation = findReservation(req.params.id);
+  assertNotPinned(reservation);
   const table = db.tables.find((t) => t.id === req.body.tableId);
   if (!table) throw httpError(404, 'Table introuvable');
   if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
@@ -146,8 +168,9 @@ router.post('/:id/assign-manual', async (req, res) => {
   const db = getDb();
   const reservation = findReservation(req.params.id);
   if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
+  assertNotPinned(reservation);
 
-  const tableIds = [...new Set(Array.isArray(req.body.tableIds) ? req.body.tableIds : [])];
+  const tableIds =[...new Set(Array.isArray(req.body.tableIds) ? req.body.tableIds : [])];
   if (!tableIds.length) throw httpError(400, 'Choisissez au moins une table');
   const tables = tableIds.map((id) => db.tables.find((t) => t.id === id));
   if (tables.some((t) => !t)) throw httpError(404, 'Table introuvable');
@@ -217,9 +240,41 @@ router.post('/:id/status', async (req, res) => {
 
 router.post('/:id/unassign', async (req, res) => {
   const reservation = findReservation(req.params.id);
+  assertNotPinned(reservation);
   setTables(reservation, []);
   await persist();
   res.json(reservation);
+});
+
+/** Fixe (ou libère) une réservation à ses tables : ni « Auto », ni « Tout retirer » n'y touchent. */
+router.post('/:id/pin', async (req, res) => {
+  const reservation = findReservation(req.params.id);
+  const pinned = Boolean(req.body.pinned);
+  if (pinned && !reservation.tableIds.length) throw httpError(409, 'Placez d’abord la réservation sur une table pour la fixer.');
+  if (pinned) reservation.pinned = true;
+  else delete reservation.pinned;
+  await persist();
+  res.json(reservation);
+});
+
+/**
+ * Retire du plan toutes les réservations d'un service pour recommencer à zéro.
+ * Gardées : les réservations fixées, et les clients déjà installés (arrivés) ou partis.
+ */
+router.post('/unassign-all', async (req, res) => {
+  const { date, service } = req.body;
+  if (!DATE_RE.test(date || '')) throw httpError(400, 'Date invalide');
+  if (!['midi', 'soir'].includes(service)) throw httpError(400, 'Service invalide');
+
+  const sameService = getDb().reservations.filter((r) => r.date === date && serviceOf(r.time) === service);
+  const cleared = sameService.filter((r) => r.tableIds.length && !r.pinned && statusOf(r) === 'expected');
+  for (const r of cleared) setTables(r, []);
+  if (cleared.length) await persist();
+  res.json({
+    cleared: cleared.length,
+    kept: sameService.filter((r) => r.tableIds.length && isActive(r)).length,
+    reservations: sameService,
+  });
 });
 
 export default router;

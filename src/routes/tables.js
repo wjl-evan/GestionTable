@@ -4,6 +4,7 @@ import { getDb, persist, httpError } from '../store.js';
 const router = Router();
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const CHAIR_SIDES = ['auto', 'tb', 'lr', 'top', 'bottom', 'left', 'right'];
 
 function sanitize(input, current = {}) {
   const { room } = getDb();
@@ -12,6 +13,11 @@ function sanitize(input, current = {}) {
   if (input.seats !== undefined) t.seats = clamp(parseInt(input.seats, 10) || 1, 1, 20);
   if (input.shape !== undefined) t.shape = input.shape === 'round' ? 'round' : 'rect';
   if (input.mergeable !== undefined) t.mergeable = Boolean(input.mergeable);
+  // Côtés des chaises (tables rectangulaires) ; 'auto' = sur les deux grands côtés
+  if (input.chairs !== undefined) {
+    if (CHAIR_SIDES.includes(input.chairs) && input.chairs !== 'auto') t.chairs = input.chairs;
+    else delete t.chairs;
+  }
   for (const k of ['w', 'h']) {
     if (input[k] !== undefined) t[k] = clamp(Math.round(Number(input[k]) || 80), 40, 400);
   }
@@ -52,6 +58,7 @@ router.delete('/:id', async (req, res) => {
     if (r.tableIds.includes(removed.id)) {
       r.tableIds = [];
       delete r.manualGroup;
+      delete r.pinned;
     }
   }
   // La table quitte ses fusions ; une fusion de moins de 2 tables disparaît

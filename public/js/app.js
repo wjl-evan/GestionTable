@@ -244,6 +244,7 @@ function renderStats() {
   const left = sum(list.filter((r) => statusOf(r) === 'left'));
   const todo = list.filter((r) => !r.tableIds.length && isActive(r) && !r.archived).length;
   $('#autoAssign').disabled = todo === 0;
+  $('#unassignAll').disabled = !list.some((r) => r.tableIds.length && isActive(r) && !r.archived);
   $('#navTodo').hidden = !todo || state.editMode;
   $('#navTodo').textContent = todo;
   const capacity = state.tables.reduce((s, t) => s + t.seats, 0);
@@ -260,6 +261,8 @@ function renderStats() {
 
 const STATUS_LABEL = { expected: 'Attendu', arrived: 'Arrivé', left: 'Parti' };
 
+const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>';
+
 /** Petites icônes (traits fins, couleur du texte). */
 const svg = (d, size = 14) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -274,15 +277,21 @@ const ICONS = {
   note: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
   remove: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  lock: svg(LOCK),
+  unlock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>'),
 };
+
+/** Petit cadenas des réservations fixées (carte, plan). */
+const pinMark = (size = 11) => `<span class="pin-mark" title="Fixée à cette table">${svg(LOCK, size)}</span>`;
 
 /** Pastille des tables d'une réservation ; orange si on se serre (moins de places que de personnes). */
 function tablesPill(r, status) {
   const capacity = cap(r.tableIds);
   const tight = status !== 'left' && r.people > capacity;
   const cls = status === 'left' ? '' : tight ? 'ok tight' : status === 'expected' ? 'ok resv' : 'ok';
-  const title = tight ? `${capacity} places pour ${r.people} personnes — on se serre` : `Tables : ${tableNames(r)}`;
-  return `<span class="pill ${cls}" title="${esc(title)}">${esc(tableNames(r))}${tight ? ' · serré' : ''}</span>`;
+  const pinned = r.pinned && status !== 'left';
+  const title = `${tight ? `${capacity} places pour ${r.people} personnes — on se serre` : `Tables : ${tableNames(r)}`}${pinned ? ' — fixée' : ''}`;
+  return `<span class="pill ${cls}${pinned ? ' pinned' : ''}" title="${esc(title)}">${pinned ? pinMark() : ''}${esc(tableNames(r))}${tight ? ' · serré' : ''}</span>`;
 }
 
 /** Boutons d'action d'une carte : toujours visibles, avec un libellé. */
@@ -296,12 +305,21 @@ function cardActionsHtml(r, status, placed) {
   else if (status === 'arrived' && placed) main = btn('leave', ICONS.door, 'Libérer', 'Les clients sont partis : la table redevient libre', 'primary');
   else if (status === 'left') main = btn('restore', ICONS.undo, 'Rétablir', 'Erreur ou client revenu : la réservation reprend ses tables si elles sont libres');
 
-  const unplace =
-    placed && status !== 'left' ? btn('unassign', ICONS.remove, 'Retirer', 'Retirer la réservation du plan (elle repasse « à placer »)', 'icon-only') : '';
+  const onPlan = placed && status !== 'left';
+  // Fixée : ni « Auto », ni « Tout retirer », ni un glisser par erreur ne la déplacent
+  const pin = !onPlan
+    ? ''
+    : r.pinned
+      ? btn('unpin', ICONS.lock, 'Fixée', 'Fixée à sa table — toucher pour la libérer (elle pourra de nouveau être déplacée)', 'pinned')
+      : btn('pin', ICONS.unlock, 'Fixer', 'Fixer à cette table : elle ne sera plus déplacée ni retirée par « Auto » ou « Tout retirer »');
+  const unplace = onPlan && !r.pinned
+    ? btn('unassign', ICONS.remove, 'Retirer', 'Retirer la réservation du plan (elle repasse « à placer »)', 'icon-only')
+    : '';
 
   return `<div class="rc-actions">
     ${main}
     <span class="rc-spacer"></span>
+    ${pin}
     ${btn('note', ICONS.note, 'Note', 'Ajouter ou modifier la note interne', r.internalNote ? 'has-note' : '')}
     ${btn('edit', ICONS.edit, 'Modifier', 'Modifier la réservation')}
     ${unplace}
@@ -431,7 +449,9 @@ function buildCard(r) {
   const editing = state.noteEditing === r.id;
   const li = document.createElement('li');
   li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
-  li.draggable = status !== 'left' && !editing && !r.archived; // pas de glisser pendant la saisie de la note
+  // pas de glisser pendant la saisie de la note, ni pour une réservation fixée
+  const movable = status !== 'left' && !editing && !r.archived && !r.pinned;
+  li.draggable = movable;
   li.dataset.id = r.id;
   li.innerHTML = cardHtml(r);
 
@@ -439,13 +459,15 @@ function buildCard(r) {
   li.addEventListener('dragend', endDrag);
   // Au doigt : appui long puis glisser vers une table
   li.addEventListener('pointerdown', (e) => {
-    if (status !== 'left' && !editing && !r.archived && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
+    if (movable && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
   });
   li.addEventListener('click', (e) => {
     if (e.target.closest('a, textarea')) return; // lien téléphone, saisie de la note
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'edit') return openDialog(r);
     if (action === 'unassign') return unassign(r.id);
+    if (action === 'pin') return setPinned(r, true);
+    if (action === 'unpin') return setPinned(r, false);
     if (action === 'arrive') return setStatus(r, 'arrived');
     if (action === 'unarrive') return setStatus(r, 'expected');
     if (action === 'leave') return setStatus(r, 'left');
@@ -475,8 +497,8 @@ function buildCard(r) {
  * Sur téléphone, le plan s'ouvre pour choisir la table, puis on revient à la liste.
  */
 function onCardTap(r) {
-  if (r.archived) {
-    // Archivée : on la sélectionne seulement (sa table s'allume), sans rien pouvoir déplacer
+  if (r.archived || (r.pinned && isActive(r))) {
+    // Archivée ou fixée : on la sélectionne seulement (sa table s'allume), sans la déplacer
     state.selectedRes = state.selectedRes === r.id ? null : r.id;
     return render();
   }
@@ -628,6 +650,7 @@ function tableFormHtml(t) {
         <label class="field"><span>Largeur</span><input name="w" type="number" min="40" max="400" step="10" value="${t.w}" /></label>
         <label class="field"><span>Hauteur</span><input name="h" type="number" min="40" max="400" step="10" value="${t.h}" ${t.shape === 'round' ? 'disabled' : ''} /></label>
       </div>
+      ${t.shape === 'round' ? '' : chairSelectHtml(t.chairs ?? 'auto')}
       <label class="switch"><input type="checkbox" name="mergeable" ${t.mergeable ? 'checked' : ''} /><span></span>Fusionnable avec les tables voisines</label>
       <button type="button" class="btn danger ghost" data-action="delete">Supprimer la table</button>
     </form>`;
@@ -764,7 +787,26 @@ function multiHtml() {
       ${seats ? `<span class="muted">${seats} places au total</span>` : ''}
       <span class="muted">Glissez l'un d'eux pour tout déplacer. Avec « Sélection multiple », chaque clic ajoute ou retire un élément.</span>
     </div>
+    ${multiChairsHtml(items)}
     ${selectionGroupHtml(tableIds)}`;
+}
+
+/** Changer d'un coup le côté des chaises de toutes les tables rectangulaires sélectionnées. */
+function multiChairsHtml(items) {
+  const rects = items.filter((i) => i.kind === 'table' && i.item.shape !== 'round').map((i) => i.item);
+  if (!rects.length) return '';
+  const values = new Set(rects.map((t) => t.chairs ?? 'auto'));
+  const value = values.size === 1 ? [...values][0] : '';
+  return `<form class="item-form" id="multiChairsForm">
+    ${chairSelectHtml(value, 'id="multiChairs"')}
+  </form>`;
+}
+
+async function setChairsOfSelection(chairs) {
+  const rects = selectedItems().filter((i) => i.kind === 'table' && i.item.shape !== 'round');
+  await Promise.all(rects.map((i) => saveTable(i.item.id, { chairs })));
+  render();
+  toast(`Chaises modifiées sur ${rects.length} table${rects.length > 1 ? 's' : ''}`);
 }
 
 /* ---------- Conservation des données clients (réglages) ---------- */
@@ -918,6 +960,7 @@ function renderInspector() {
   els.inspector.querySelectorAll('[data-ungroup]').forEach((b) =>
     b.addEventListener('click', () => removeGroup(b.dataset.ungroup))
   );
+  $('#multiChairs', els.inspector)?.addEventListener('change', (e) => setChairsOfSelection(e.target.value));
   $('#createGroup', els.inspector)?.addEventListener('click', () => {
     const tableIds = selectedItems().filter((i) => i.kind === 'table').map((i) => i.item.id);
     createGroup(tableIds, Number($('#newGroupCapacity', els.inspector).value));
@@ -942,6 +985,7 @@ function renderInspector() {
         shape: fd.get('shape'),
         w: fd.get('w'),
         h: fd.get('h') ?? t.h,
+        ...(fd.has('chairs') ? { chairs: fd.get('chairs') } : {}),
         mergeable: fd.get('mergeable') === 'on',
       });
     } else {
@@ -967,19 +1011,50 @@ function chairPositions(t) {
     }
     return out;
   }
-  const horizontal = t.w >= t.h;
-  const len = horizontal ? t.w : t.h;
-  const a = Math.ceil(n / 2);
-  const b = n - a;
-  for (let i = 0; i < a; i++) {
-    const p = (len * (i + 1)) / (a + 1);
-    out.push(horizontal ? { x: p, y: -off, rot: 0 } : { x: -off, y: p, rot: 90 });
-  }
-  for (let i = 0; i < b; i++) {
-    const p = (len * (i + 1)) / (b + 1);
-    out.push(horizontal ? { x: p, y: t.h + off, rot: 0 } : { x: t.w + off, y: p, rot: 90 });
-  }
+  // Un ou deux côtés : le premier reçoit la moitié arrondie au-dessus, le second le reste
+  const sides = chairSides(t);
+  const counts = sides.length === 1 ? [n] : [Math.ceil(n / 2), Math.floor(n / 2)];
+  sides.forEach((side, s) => {
+    const k = counts[s];
+    const along = side === 'top' || side === 'bottom';
+    const len = along ? t.w : t.h;
+    for (let i = 0; i < k; i++) {
+      const p = (len * (i + 1)) / (k + 1);
+      if (side === 'top') out.push({ x: p, y: -off, rot: 0 });
+      if (side === 'bottom') out.push({ x: p, y: t.h + off, rot: 0 });
+      if (side === 'left') out.push({ x: -off, y: p, rot: 90 });
+      if (side === 'right') out.push({ x: t.w + off, y: p, rot: 90 });
+    }
+  });
   return out;
+}
+
+/** Côtés où sont les chaises d'une table rectangulaire (par défaut : les deux grands côtés). */
+function chairSides(t) {
+  const mode = t.chairs && t.chairs !== 'auto' ? t.chairs : t.w >= t.h ? 'tb' : 'lr';
+  if (mode === 'tb') return ['top', 'bottom'];
+  if (mode === 'lr') return ['left', 'right'];
+  return [mode];
+}
+
+const CHAIR_OPTIONS = [
+  ['auto', 'Automatique (grands côtés)'],
+  ['tb', 'Haut et bas'],
+  ['lr', 'Gauche et droite'],
+  ['top', 'En haut seulement'],
+  ['bottom', 'En bas seulement'],
+  ['left', 'À gauche seulement'],
+  ['right', 'À droite seulement'],
+];
+
+/** `value` vide = tables sélectionnées réglées différemment. */
+function chairSelectHtml(value, attrs = '') {
+  return `<label class="field"><span>Chaises</span>
+    <select name="chairs" ${attrs}>
+      ${value ? '' : '<option value="" selected disabled>Différentes</option>'}
+      ${CHAIR_OPTIONS.map(([v, l]) => `<option value="${v}" ${v === value ? 'selected' : ''}>${l}</option>`).join('')}
+    </select>
+  </label>`;
 }
 
 function renderPlan() {
@@ -1012,12 +1087,27 @@ function renderPlan() {
 
 const center = (t) => ({ x: t.x + t.w / 2, y: t.y + t.h / 2 });
 
-/** Même ligne (ou même colonne) : les tables se chevauchent au moins de moitié sur l'autre axe. */
+/**
+ * Tables espacées mais dans la continuité l'une de l'autre :
+ * - même ligne (ou même colonne) : sur l'autre axe, elles occupent quasiment la même bande
+ *   (chevauchement ≥ 80 % de la plus grande) ;
+ * - et dans le sens des chaises : pas de chaises entre les deux. Deux tables avec chaises en haut et
+ *   en bas se prolongent côte à côte, pas l'une au-dessus de l'autre.
+ * Sinon elles restent deux blocs reliés par un trait.
+ */
 function aligned(a, b) {
+  if (a.shape === 'round' || b.shape === 'round') return false; // chaises tout autour
   const overlap = (a1, a2, b1, b2) => Math.min(a2, b2) - Math.max(a1, b1);
+  // Chaises entre les deux : le côté de `first` tourné vers `second`, et inversement
+  const between = (first, second, toward, back) =>
+    chairSides(first).includes(toward) || chairSides(second).includes(back);
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a];
+  const [upper, lower] = a.y <= b.y ? [a, b] : [b, a];
+  const sameRow = overlap(a.y, a.y + a.h, b.y, b.y + b.h) >= Math.max(a.h, b.h) * 0.8;
+  const sameCol = overlap(a.x, a.x + a.w, b.x, b.x + b.w) >= Math.max(a.w, b.w) * 0.8;
   return (
-    overlap(a.y, a.y + a.h, b.y, b.y + b.h) >= Math.min(a.h, b.h) / 2 ||
-    overlap(a.x, a.x + a.w, b.x, b.x + b.w) >= Math.min(a.w, b.w) / 2
+    (sameRow && !between(left, right, 'right', 'left')) ||
+    (sameCol && !between(upper, lower, 'bottom', 'top'))
   );
 }
 
@@ -1078,7 +1168,7 @@ function renderMergedGroup(r) {
 
   for (const c of clusters) {
     const merge = document.createElement('div');
-    merge.className = `merge ${statusOf(r)}${selected}`;
+    merge.className = `merge ${statusOf(r)}${r.pinned ? ' pinned' : ''}${selected}`;
     Object.assign(merge.style, boxStyle(boxOf(c)));
     plan.append(merge);
   }
@@ -1092,7 +1182,7 @@ function renderMergedGroup(r) {
   const label = document.createElement('div');
   label.className = `merge-label ${statusOf(r)}`;
   Object.assign(label.style, boxStyle(main));
-  label.innerHTML = `<span class="t-guest">${esc(r.name)}</span>
+  label.innerHTML = `${r.pinned ? pinMark() : ''}<span class="t-guest">${esc(r.name)}</span>
     <span class="t-meta">${tableMeta(r, cap(r.tableIds))}</span>`;
   plan.append(label);
 }
@@ -1171,6 +1261,8 @@ function takenChairs(t, res) {
   const k = Math.max(0, Math.min(n, res.people - before));
   if (k >= n) return new Set([...Array(n).keys()]);
   if (t.shape === 'round') return new Set([...Array(k).keys()].map((i) => Math.floor((i * n) / k)));
+  // Chaises d'un seul côté : à la suite
+  if (chairSides(t).length === 1) return new Set([...Array(k).keys()]);
   // Rectangle : chairPositions donne d'abord un côté (a chaises) puis l'autre ; on alterne les côtés
   const a = Math.ceil(n / 2);
   const order = [];
@@ -1184,7 +1276,7 @@ function takenChairs(t, res) {
 function tableElement(t, res) {
   const grouped = res && res.tableIds.length > 1;
   const el = document.createElement('div');
-  el.className = ['table', t.shape, res ? `busy ${statusOf(res)}` : 'free', grouped ? 'grouped' : '',
+  el.className = ['table', t.shape, res ? `busy ${statusOf(res)}` : 'free', grouped ? 'grouped' : '', res?.pinned ? 'pinned' : '',
     res && state.selectedRes === res.id ? 'selected' : '',
     state.grouping?.tableIds.includes(t.id) ? 'grouping-pick' : '',
     t.mergeable ? 'mergeable' : ''].filter(Boolean).join(' ');
@@ -1205,6 +1297,7 @@ function tableElement(t, res) {
   top.className = 'top';
   if (res && !grouped) {
     top.innerHTML = `<span class="t-tag">${esc(t.name)}</span>
+      ${res.pinned ? pinMark() : ''}
       <span class="t-guest">${esc(res.name)}</span>
       <span class="t-meta">${tableMeta(res, t.seats)}</span>`;
   } else if (grouped) {
@@ -1220,8 +1313,8 @@ function tableElement(t, res) {
     return el;
   }
 
-  // Une table occupée se déplace en glissant la réservation
-  if (res && !res.archived) {
+  // Une table occupée se déplace en glissant la réservation (sauf si elle est fixée)
+  if (res && !res.archived && !res.pinned) {
     el.draggable = true;
     el.addEventListener('dragstart', (e) => startDrag(e, res.id));
     el.addEventListener('dragend', endDrag);
@@ -2357,6 +2450,40 @@ async function unassign(resId) {
   render();
 }
 
+async function setPinned(r, pinned) {
+  try {
+    replaceReservation(await api.setPinned(r.id, pinned));
+    toast(pinned ? `${r.name} fixé·e en ${tableNames(r)}` : `${r.name} n’est plus fixé·e : elle peut être déplacée`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  render();
+}
+
+/** Retire du plan toutes les réservations attendues du service (sauf celles fixées) pour recommencer. */
+async function unassignAll() {
+  const placed = visibleReservations().filter((r) => r.tableIds.length && isActive(r) && !r.archived);
+  const removable = placed.filter((r) => !r.pinned && statusOf(r) === 'expected');
+  if (!removable.length) {
+    toast(placed.length ? 'Rien à retirer : les réservations placées sont fixées ou déjà installées' : 'Aucune réservation placée sur ce service');
+    return;
+  }
+  const kept = placed.length - removable.length;
+  const msg = `Retirer ${removable.length} réservation${removable.length > 1 ? 's' : ''} du plan (service du ${state.service}) ?` +
+    `${kept ? `\n${kept} restent en place : fixées ou clients déjà installés.` : ''}`;
+  if (!confirm(msg)) return;
+  try {
+    const { cleared, reservations } = await api.unassignAll(state.date, state.service);
+    reservations.forEach(replaceReservation);
+    state.selectedRes = null;
+    state.placing = null;
+    toast(`${cleared} réservation${cleared > 1 ? 's' : ''} retirée${cleared > 1 ? 's' : ''} du plan`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  render();
+}
+
 /* ---------- Dialogue réservation ---------- */
 
 let editingId = null;
@@ -2385,7 +2512,7 @@ els.form.addEventListener('submit', async (e) => {
     const saved = editingId
       ? await api.updateReservation(editingId, data)
       : await api.createReservation(data);
-    const hadTables = editingId && resById(editingId)?.tableIds.length;
+    const oldTables = editingId ? resById(editingId)?.tableIds.join() ?? '' : '';
     els.dialog.close();
     if (saved.date !== state.date) {
       state.date = saved.date;
@@ -2393,8 +2520,14 @@ els.form.addEventListener('submit', async (e) => {
     } else if (editingId) replaceReservation(saved);
     else state.reservations.push(saved);
     state.service = serviceOf(saved.time);
-    if (hadTables && !saved.tableIds.length) toast(`${saved.name} est à replacer sur le plan`);
-    else toast(editingId ? 'Réservation mise à jour' : 'Réservation ajoutée', 'success');
+    // Nouvelle réservation (ou changée de service) : une table libre lui est attribuée automatiquement
+    const placedNow = saved.tableIds.length > 0 && saved.tableIds.join() !== oldTables;
+    if (!editingId) {
+      if (placedNow) toast(`Réservation ajoutée — placée en ${tableNames(saved)}`, 'success');
+      else toast('Réservation ajoutée — aucune table libre : à placer', 'error');
+    } else if (oldTables && !saved.tableIds.length) toast(`${saved.name} est à replacer sur le plan`);
+    else if (placedNow) toast(`Réservation mise à jour — placée en ${tableNames(saved)}`, 'success');
+    else toast('Réservation mise à jour', 'success');
     render();
   } catch (err) {
     $('#formError').textContent = err.message;
@@ -2477,6 +2610,7 @@ $('#editToggle').addEventListener('click', () => {
 });
 $('#newRes').addEventListener('click', () => openDialog());
 $('#autoAssign').addEventListener('click', autoAssignAll);
+$('#unassignAll').addEventListener('click', unassignAll);
 
 function clearSelection() {
   if (!state.selectedRes && !state.selection.length && !state.linking && !state.placing) return;

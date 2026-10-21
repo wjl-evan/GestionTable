@@ -80,6 +80,12 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   donne en priorité les tables **peu polyvalentes** (isolées, sans fusion) et garde libres celles qui
   permettent de grandes tables (ex. T1 + T2 = 10 n'est pas cassée pour un groupe de 4). Si une réservation
   resterait sans table, il recommence en anticipant : chaque choix est jugé sur ce qu'il laisse pour la suite.
+- **Placement dès la création** : chaque nouvelle réservation (ou réservation changée de service) reçoit
+  automatiquement une table libre ; s'il n'y en a pas, elle reste « à placer ».
+- **Réservation fixée** (bouton « Fixer » sur la carte, cadenas violet sur la carte et le plan) : elle ne peut
+  plus être glissée, retirée, ni touchée par « Auto » ou « Tout retirer ». « Fixée » la libère.
+- **Tout retirer** (à côté d'« Auto ») : retire du plan les réservations attendues du service pour recommencer
+  à zéro ; les réservations fixées et les clients déjà installés restent en place.
 - Le choix fait dans la barre ne vaut que pour cette réservation, sans créer de fusion permanente ; si on se
   serre, elle est marquée « serré » (ex. 7/6).
 - Glisser une table occupée vers une autre pour déplacer la réservation ; la déposer sur la liste pour la retirer.
@@ -150,5 +156,7 @@ changements aux appareils connectés.
 | POST | `/api/reservations/:id/assign` | `{ tableId }` — place la réservation (fusion auto si besoin) |
 | POST | `/api/reservations/:id/assign-manual` | `{ tableIds }` — place sur des tables choisies (pour ce service, même si trop petites) |
 | POST | `/api/reservations/:id/unassign` | Retire la réservation du plan |
+| POST | `/api/reservations/:id/pin` | `{ pinned }` — fixe la réservation à ses tables (ou la libère) |
+| POST | `/api/reservations/unassign-all` | `{ date, service }` — retire du plan les réservations attendues non fixées |
 | POST | `/api/reservations/:id/status` | `{ status: 'expected' \| 'arrived' \| 'left' }` — arrivée / départ |
 | GET / PUT | `/api/settings` | `{ archiveAfterDays, anonymizeAfterMonths }` — conservation des données, appliquée aussitôt |

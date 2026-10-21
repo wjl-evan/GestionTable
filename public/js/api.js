@@ -57,6 +57,8 @@ export const api = {
   updateSettings: (data) => request('PUT', '/api/settings', data),
   autoAssign: (date, service) => request('POST', '/api/reservations/auto-assign', { date, service }),
   unassign: (id) => request('POST', `/api/reservations/${id}/unassign`),
+  setPinned: (id, pinned) => request('POST', `/api/reservations/${id}/pin`, { pinned }),
+  unassignAll: (date, service) => request('POST', '/api/reservations/unassign-all', { date, service }),
 
   createTable: (data) => request('POST', '/api/tables', data),
   updateTable: (id, data) => request('PUT', `/api/tables/${id}`, data),

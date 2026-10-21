@@ -15,6 +15,9 @@
   --resv: #3563c9;
   --resv-soft: #e6edfb;
   --resv-line: #9db5ea;
+  /* Réservation fixée à sa table : violet */
+  --pin: #7a4fd0;
+  --pin-soft: #efe8fb;
   --danger: #c2410c;
   --danger-soft: #fbe9e1;
   --warn: #b7791f;
@@ -45,6 +48,8 @@
     --resv: #7fa3f2;
     --resv-soft: #1b2540;
     --resv-line: #3d5694;
+    --pin: #b49cf5;
+    --pin-soft: #2a2140;
     --danger: #f08a5d;
     --danger-soft: #3a2219;
     --floor: #181817;
@@ -149,6 +154,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .auto-btn { height: auto; color: var(--accent); }
 .auto-btn:disabled { opacity: .45; cursor: default; }
 .auto-btn.busy svg { animation: spin 1s linear infinite; }
+.clear-btn { height: auto; color: var(--ink-2); }
+.clear-btn:disabled { opacity: .45; cursor: default; }
+@media (max-width: 1100px) { .clear-btn span { display: none; } }
+
+/* Réservation fixée : cadenas violet (carte, pastille, plan) */
+.pin-mark { display: inline-flex; color: var(--pin); }
+.pill.pinned { display: inline-flex; align-items: center; gap: 4px; box-shadow: inset 0 0 0 1.5px var(--pin); }
+.rc-btn.pinned { color: var(--pin); background: var(--pin-soft); border-color: transparent; }
+.table.pinned:not(.grouped) .top { box-shadow: 0 0 0 2px var(--pin); }
+.table .top .pin-mark { position: absolute; top: 4px; right: 5px; }
+.table.round .top .pin-mark { position: static; }
+.merge.pinned { box-shadow: 0 0 0 2px var(--pin); }
+.merge-label .pin-mark { margin-bottom: 1px; }
+.dot.pinned { background: var(--surface); border: 2px solid var(--pin); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- Mise en page ---------- */
