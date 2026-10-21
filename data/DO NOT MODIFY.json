@@ -1,0 +1,963 @@
+{
+  "room": {
+    "w": 2320,
+    "h": 1420
+  },
+  "zones": [
+    {
+      "id": "zmvhda7kf",
+      "type": "door",
+      "label": "Entrée",
+      "w": 290,
+      "h": 180,
+      "x": 1770,
+      "y": 1070
+    },
+    {
+      "id": "zmvhdaey7",
+      "type": "bar",
+      "label": "Bar",
+      "w": 520,
+      "h": 160,
+      "x": 1250,
+      "y": 1250
+    },
+    {
+      "id": "zmvhdft5l",
+      "type": "wall",
+      "label": "Mur",
+      "w": 1780,
+      "h": 12,
+      "x": 0,
+      "y": 1408
+    },
+    {
+      "id": "zmvhdicmg",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 180,
+      "x": 490,
+      "y": 1230
+    },
+    {
+      "id": "zmvhdqfjy",
+      "type": "wall",
+      "label": "Mur",
+      "w": 140,
+      "h": 12,
+      "x": 0,
+      "y": 750
+    },
+    {
+      "id": "zmvhdqo3y",
+      "type": "wall",
+      "label": "Mur",
+      "w": 830,
+      "h": 12,
+      "x": 220,
+      "y": 750
+    },
+    {
+      "id": "zmvhdr36d",
+      "type": "kitchen",
+      "label": "Buffet",
+      "w": 1040,
+      "h": 350,
+      "x": 10,
+      "y": 400
+    },
+    {
+      "id": "zmvhdyl1v",
+      "type": "wall",
+      "label": "Mur",
+      "w": 410,
+      "h": 12,
+      "x": 1180,
+      "y": 1060
+    },
+    {
+      "id": "zmvhe24qi",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 170,
+      "x": 1770,
+      "y": 1250
+    },
+    {
+      "id": "zmvhe2qhs",
+      "type": "wall",
+      "label": "Mur",
+      "w": 530,
+      "h": 12,
+      "x": 1770,
+      "y": 1060
+    },
+    {
+      "id": "zmvhe2vz3",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 100,
+      "x": 1770,
+      "y": 970
+    },
+    {
+      "id": "zmvhe33ct",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 560,
+      "x": 1770,
+      "y": 280
+    },
+    {
+      "id": "zmvhe3g3g",
+      "type": "wall",
+      "label": "Mur",
+      "w": 230,
+      "h": 12,
+      "x": 1770,
+      "y": 1250
+    },
+    {
+      "id": "zmvhehdkg",
+      "type": "wall",
+      "label": "Mur",
+      "w": 530,
+      "h": 12,
+      "x": 1770,
+      "y": 410
+    },
+    {
+      "id": "zmvhehyf4",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 660,
+      "x": 2290,
+      "y": 410
+    },
+    {
+      "id": "zmvheihck",
+      "type": "wall",
+      "label": "Mur",
+      "w": 1050,
+      "h": 12,
+      "x": 0,
+      "y": 390
+    },
+    {
+      "id": "zmvheiqo7",
+      "type": "area",
+      "label": "Escalier",
+      "w": 550,
+      "h": 150,
+      "x": 1050,
+      "y": 290
+    },
+    {
+      "id": "zmvhej3lk",
+      "type": "wc",
+      "label": "Toilettes",
+      "w": 170,
+      "h": 150,
+      "x": 1600,
+      "y": 290
+    },
+    {
+      "id": "zmvhejffl",
+      "type": "wall",
+      "label": "Mur",
+      "w": 730,
+      "h": 12,
+      "x": 1050,
+      "y": 280
+    },
+    {
+      "id": "zmvhejx9v",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 330,
+      "x": 1040,
+      "y": 280
+    },
+    {
+      "id": "zmvhekh5o",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 1030,
+      "x": 0,
+      "y": 390
+    },
+    {
+      "id": "zmvhen98f",
+      "type": "wall",
+      "label": "Mur",
+      "w": 12,
+      "h": 120,
+      "x": 1950,
+      "y": 420
+    },
+    {
+      "id": "zmvheodoa",
+      "type": "wall",
+      "label": "Mur",
+      "w": 180,
+      "h": 12,
+      "x": 1780,
+      "y": 530
+    }
+  ],
+  "tables": [
+    {
+      "id": "tmvhdba97",
+      "name": "T1",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 1130,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdekxt",
+      "name": "T2",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 980,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdf42v",
+      "name": "T3",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 870,
+      "y": 1290
+    },
+    {
+      "id": "tmvhdgouj",
+      "name": "T4",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 870,
+      "y": 1190
+    },
+    {
+      "id": "tmvhdhrpb",
+      "name": "T5",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 760,
+      "y": 1290
+    },
+    {
+      "id": "tmvhdhv3u",
+      "name": "T6",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 760,
+      "y": 1190
+    },
+    {
+      "id": "tmvhdhwy1",
+      "name": "T7",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 650,
+      "y": 1290
+    },
+    {
+      "id": "tmvhdhyhw",
+      "name": "T8",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 650,
+      "y": 1190
+    },
+    {
+      "id": "tmvhdi0l2",
+      "name": "T9",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 540,
+      "y": 1290
+    },
+    {
+      "id": "tmvhdi2pm",
+      "name": "T10",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 540,
+      "y": 1190
+    },
+    {
+      "id": "tmvhdj2at",
+      "name": "T11",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 370,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdj6nn",
+      "name": "T12",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 80,
+      "h": 60,
+      "x": 280,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdjdcn",
+      "name": "T13",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 80,
+      "h": 60,
+      "x": 190,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdjetl",
+      "name": "T14",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 80,
+      "h": 60,
+      "x": 100,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdjg9l",
+      "name": "T15",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 80,
+      "h": 60,
+      "x": 10,
+      "y": 1280
+    },
+    {
+      "id": "tmvhdlm36",
+      "name": "T26",
+      "seats": 11,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 80,
+      "h": 240,
+      "x": 60,
+      "y": 900
+    },
+    {
+      "id": "tmvhdmapa",
+      "name": "T36",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 70,
+      "y": 760
+    },
+    {
+      "id": "tmvhdn6rt",
+      "name": "T25",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 250,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdnlhi",
+      "name": "T24",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 380,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdnpdu",
+      "name": "T23",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 520,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdnrcw",
+      "name": "T22",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 660,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdntpy",
+      "name": "T21",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 800,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdnvgi",
+      "name": "T20",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 940,
+      "y": 1040
+    },
+    {
+      "id": "tmvhdo0n1",
+      "name": "T35",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 250,
+      "y": 910
+    },
+    {
+      "id": "tmvhdo2pl",
+      "name": "T34",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 380,
+      "y": 910
+    },
+    {
+      "id": "tmvhdo44f",
+      "name": "T33",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 520,
+      "y": 910
+    },
+    {
+      "id": "tmvhdo7le",
+      "name": "T32",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 660,
+      "y": 910
+    },
+    {
+      "id": "tmvhdo96r",
+      "name": "T31",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 800,
+      "y": 910
+    },
+    {
+      "id": "tmvhdoah7",
+      "name": "T30",
+      "seats": 5,
+      "shape": "round",
+      "mergeable": false,
+      "w": 80,
+      "h": 80,
+      "x": 940,
+      "y": 910
+    },
+    {
+      "id": "tmvhdon6n",
+      "name": "T46",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 230,
+      "y": 760
+    },
+    {
+      "id": "tmvhdovvu",
+      "name": "T45",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 350,
+      "y": 760
+    },
+    {
+      "id": "tmvhdp2hc",
+      "name": "T44",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 470,
+      "y": 760
+    },
+    {
+      "id": "tmvhdp5bj",
+      "name": "T43",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 590,
+      "y": 760
+    },
+    {
+      "id": "tmvhdp6ri",
+      "name": "T42",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 710,
+      "y": 760
+    },
+    {
+      "id": "tmvhdp8ef",
+      "name": "T40",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 950,
+      "y": 760
+    },
+    {
+      "id": "tmvhdp9gm",
+      "name": "T41",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 830,
+      "y": 760
+    },
+    {
+      "id": "tmvhdwqma",
+      "name": "T50",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1220,
+      "y": 940
+    },
+    {
+      "id": "tmvhdwtls",
+      "name": "T53",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1350,
+      "y": 940
+    },
+    {
+      "id": "tmvhdwv4b",
+      "name": "T56",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1480,
+      "y": 940
+    },
+    {
+      "id": "tmvhdxagn",
+      "name": "T51",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1220,
+      "y": 800
+    },
+    {
+      "id": "tmvhdxbzg",
+      "name": "T54",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1350,
+      "y": 800
+    },
+    {
+      "id": "tmvhdxd3o",
+      "name": "T57",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 120,
+      "x": 1480,
+      "y": 800
+    },
+    {
+      "id": "tmvhdxpia",
+      "name": "T52",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 1220,
+      "y": 700
+    },
+    {
+      "id": "tmvhdxs6n",
+      "name": "T55",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 1350,
+      "y": 700
+    },
+    {
+      "id": "tmvhdxtuu",
+      "name": "T58",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 80,
+      "x": 1480,
+      "y": 700
+    },
+    {
+      "id": "tmvhdxwtm",
+      "name": "T48",
+      "seats": 9,
+      "shape": "round",
+      "mergeable": false,
+      "w": 150,
+      "h": 150,
+      "x": 1200,
+      "y": 480
+    },
+    {
+      "id": "tmvhdy5bf",
+      "name": "T49",
+      "seats": 9,
+      "shape": "round",
+      "mergeable": false,
+      "w": 150,
+      "h": 150,
+      "x": 1430,
+      "y": 480
+    },
+    {
+      "id": "tmvhe3zjv",
+      "name": "T66",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 1780,
+      "y": 800
+    },
+    {
+      "id": "tmvhe42wv",
+      "name": "T67",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 1910,
+      "y": 800
+    },
+    {
+      "id": "tmvhe4621",
+      "name": "T68",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 1780,
+      "y": 690
+    },
+    {
+      "id": "tmvhe484k",
+      "name": "T69",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 120,
+      "h": 60,
+      "x": 1910,
+      "y": 690
+    },
+    {
+      "id": "tmvhe4oxa",
+      "name": "T70",
+      "seats": 6,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 180,
+      "h": 60,
+      "x": 1780,
+      "y": 580
+    },
+    {
+      "id": "tmvhe5n0q",
+      "name": "T71",
+      "seats": 10,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 200,
+      "h": 60,
+      "x": 1980,
+      "y": 460
+    },
+    {
+      "id": "tmvhe6kqn",
+      "name": "T60",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 1780,
+      "y": 970
+    },
+    {
+      "id": "tmvhe9d7b",
+      "name": "T72",
+      "seats": 12,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 240,
+      "x": 2180,
+      "y": 550
+    },
+    {
+      "id": "tmvhea6rl",
+      "name": "T61",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 1860,
+      "y": 970
+    },
+    {
+      "id": "tmvhea7qe",
+      "name": "T62",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 1940,
+      "y": 970
+    },
+    {
+      "id": "tmvhea91l",
+      "name": "T63",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 2020,
+      "y": 970
+    },
+    {
+      "id": "tmvheaam4",
+      "name": "T64",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 2100,
+      "y": 970
+    },
+    {
+      "id": "tmvheabpa",
+      "name": "T65",
+      "seats": 2,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 60,
+      "x": 2180,
+      "y": 970
+    },
+    {
+      "id": "tmvhecjvf",
+      "name": "T78",
+      "seats": 4,
+      "shape": "rect",
+      "mergeable": true,
+      "w": 60,
+      "h": 100,
+      "x": 2180,
+      "y": 800
+    }
+  ],
+  "reservations": [],
+  "links": [
+    {
+      "id": "lmvhdey3a",
+      "a": "tmvhdekxt",
+      "b": "tmvhdba97",
+      "bonus": 2
+    },
+    {
+      "id": "lmvhdi5n6",
+      "a": "tmvhdgouj",
+      "b": "tmvhdf42v",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdi7vg",
+      "a": "tmvhdhrpb",
+      "b": "tmvhdhv3u",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdi90c",
+      "a": "tmvhdhwy1",
+      "b": "tmvhdhyhw",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdia5j",
+      "a": "tmvhdi0l2",
+      "b": "tmvhdi2pm",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdmmoi",
+      "a": "tmvhdlm36",
+      "b": "tmvhdmapa",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdznjz",
+      "a": "tmvhdwqma",
+      "b": "tmvhdxagn",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhdzpqj",
+      "a": "tmvhdwtls",
+      "b": "tmvhdxbzg",
+      "bonus": 2
+    },
+    {
+      "id": "lmvhdzrs3",
+      "a": "tmvhdwv4b",
+      "b": "tmvhdxd3o",
+      "bonus": 2
+    },
+    {
+      "id": "lmvhecy5r",
+      "a": "tmvhe9d7b",
+      "b": "tmvhecjvf",
+      "bonus": 2
+    },
+    {
+      "id": "lmvhed269",
+      "a": "tmvhe4621",
+      "b": "tmvhe484k",
+      "bonus": 0
+    },
+    {
+      "id": "lmvhed3lt",
+      "a": "tmvhe3zjv",
+      "b": "tmvhe42wv",
+      "bonus": 0
+    }
+  ]
+}

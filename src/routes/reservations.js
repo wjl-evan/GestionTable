@@ -1,0 +1,221 @@
+import { Router } from 'express';
+import crypto from 'node:crypto';
+import { getDb, persist, httpError } from '../store.js';
+import { autoAssign, capacityOf, findCombination, isActive, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
+
+const router = Router();
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function validate(input, current = {}) {
+  const r = { ...current };
+  if (input.name !== undefined) r.name = String(input.name).trim().slice(0, 60);
+  if (input.people !== undefined) r.people = parseInt(input.people, 10);
+  if (input.date !== undefined) r.date = String(input.date);
+  if (input.time !== undefined) r.time = String(input.time);
+  if (input.phone !== undefined) r.phone = String(input.phone).trim().slice(0, 30);
+  if (input.notes !== undefined) r.notes = String(input.notes).trim().slice(0, 300);
+  // Note interne : réservée à l'équipe (jamais communiquée au client)
+  if (input.internalNote !== undefined) r.internalNote = String(input.internalNote).trim().slice(0, 500);
+
+  if (!r.name) throw httpError(400, 'Le nom est requis');
+  if (!Number.isInteger(r.people) || r.people < 1 || r.people > 50) {
+    throw httpError(400, 'Nombre de personnes invalide (1 à 50)');
+  }
+  if (!DATE_RE.test(r.date || '')) throw httpError(400, 'Date invalide');
+  if (!TIME_RE.test(r.time || '')) throw httpError(400, 'Heure invalide');
+  return r;
+}
+
+function findReservation(id) {
+  const r = getDb().reservations.find((x) => x.id === id);
+  if (!r) throw httpError(404, 'Réservation introuvable');
+  return r;
+}
+
+/** Tables occupées par les autres réservations du même service (les clients partis les ont libérées). */
+function busyTables(reservation) {
+  const service = serviceOf(reservation.time);
+  return new Set(
+    getDb()
+      .reservations.filter(
+        (r) =>
+          r.id !== reservation.id && r.date === reservation.date && serviceOf(r.time) === service && isActive(r)
+      )
+      .flatMap((r) => r.tableIds)
+  );
+}
+
+/**
+ * Tables d'une réservation. `manual` = regroupement choisi à la main pour ce service
+ * (peut avoir moins de places que de personnes, on se serre) — pas une fusion permanente du plan.
+ */
+function setTables(reservation, tableIds, manual = false) {
+  reservation.tableIds = tableIds;
+  if (manual && tableIds.length) reservation.manualGroup = true;
+  else delete reservation.manualGroup;
+}
+
+router.get('/', (req, res) => {
+  const { date } = req.query;
+  let list = getDb().reservations;
+  if (date) {
+    if (!DATE_RE.test(date)) throw httpError(400, 'Date invalide');
+    list = list.filter((r) => r.date === date);
+  }
+  res.json([...list].sort((a, b) => a.time.localeCompare(b.time)));
+});
+
+router.post('/', async (req, res) => {
+  const r = validate(req.body, {
+    id: crypto.randomUUID(),
+    phone: '',
+    notes: '',
+    internalNote: '',
+    tableIds: [],
+    status: 'expected',
+    createdAt: new Date().toISOString(),
+  });
+  getDb().reservations.push(r);
+  await persist();
+  res.status(201).json(r);
+});
+
+router.put('/:id', async (req, res) => {
+  const db = getDb();
+  const current = findReservation(req.params.id);
+  const next = validate(req.body, current);
+
+  // Changement de service ou table devenue trop petite → la réservation repasse "à placer"
+  // (sauf regroupement choisi à la main : on a déjà accepté de se serrer)
+  const moved = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
+  const tooSmall = !current.manualGroup && capacityOf(db.tables, next.tableIds, db.groups) < next.people;
+  Object.assign(current, next);
+  if (moved || tooSmall) setTables(current, []);
+  await persist();
+  res.json(current);
+});
+
+router.delete('/:id', async (req, res) => {
+  const db = getDb();
+  const idx = db.reservations.findIndex((r) => r.id === req.params.id);
+  if (idx === -1) throw httpError(404, 'Réservation introuvable');
+  db.reservations.splice(idx, 1);
+  await persist();
+  res.status(204).end();
+});
+
+/**
+ * Attribue une table. Si elle est trop petite, les tables voisines libres
+ * et fusionnables sont combinées automatiquement.
+ */
+router.post('/:id/assign', async (req, res) => {
+  const db = getDb();
+  const reservation = findReservation(req.params.id);
+  const table = db.tables.find((t) => t.id === req.body.tableId);
+  if (!table) throw httpError(404, 'Table introuvable');
+  if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
+
+  const busy = busyTables(reservation);
+  if (busy.has(table.id)) throw httpError(409, `${table.name} est déjà occupée sur ce service.`);
+
+  const combo = findCombination(db.tables, table.id, reservation.people, busy, db.groups);
+  if (!combo) {
+    const canMerge = table.mergeable || db.groups.some((g) => g.tableIds.includes(table.id));
+    const reason = canMerge
+      ? `Pas assez de tables liées libres autour de ${table.name} pour ${reservation.people} personnes.`
+      : `${table.name} (${table.seats} places) est trop petite et ne peut pas être fusionnée.`;
+    throw httpError(409, reason);
+  }
+
+  setTables(reservation, combo);
+  await persist();
+  res.json({ reservation, merged: combo.length > 1 });
+});
+
+/**
+ * Place la réservation sur des tables choisies à la main, pour ce service uniquement.
+ * Accepté même si le total de places est inférieur au nombre de personnes.
+ */
+router.post('/:id/assign-manual', async (req, res) => {
+  const db = getDb();
+  const reservation = findReservation(req.params.id);
+  if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
+
+  const tableIds = [...new Set(Array.isArray(req.body.tableIds) ? req.body.tableIds : [])];
+  if (!tableIds.length) throw httpError(400, 'Choisissez au moins une table');
+  const tables = tableIds.map((id) => db.tables.find((t) => t.id === id));
+  if (tables.some((t) => !t)) throw httpError(404, 'Table introuvable');
+
+  const busy = busyTables(reservation);
+  const taken = tables.filter((t) => busy.has(t.id)).map((t) => t.name);
+  if (taken.length) throw httpError(409, `${taken.join(', ')} ${taken.length > 1 ? 'sont déjà occupées' : 'est déjà occupée'} sur ce service.`);
+
+  setTables(reservation, tableIds, true);
+  await persist();
+  res.json({ reservation, capacity: capacityOf(db.tables, tableIds, db.groups) });
+});
+
+/** Place automatiquement toutes les réservations non placées d'un service. */
+router.post('/auto-assign', async (req, res) => {
+  const { date, service } = req.body;
+  if (!DATE_RE.test(date || '')) throw httpError(400, 'Date invalide');
+  if (!['midi', 'soir'].includes(service)) throw httpError(400, 'Service invalide');
+
+  const db = getDb();
+  const sameService = db.reservations.filter((r) => r.date === date && serviceOf(r.time) === service);
+  const busy = new Set(sameService.filter(isActive).flatMap((r) => r.tableIds));
+  const pending = sameService.filter((r) => !r.tableIds.length && isActive(r));
+
+  const placements = autoAssign(db.tables, pending, busy, db.groups);
+  for (const r of pending) {
+    if (placements.has(r.id)) setTables(r, placements.get(r.id));
+  }
+  if (placements.size) await persist();
+
+  res.json({
+    placed: placements.size,
+    unplaced: pending.filter((r) => !placements.has(r.id)).map((r) => r.name),
+    reservations: sameService,
+  });
+});
+
+/**
+ * Change le statut : attendu → arrivé → parti.
+ * "Parti" libère les tables pour le reste du service (elles restent notées pour l'historique).
+ * Si on rétablit un client parti alors que ses tables ont été redonnées, il repasse "à placer".
+ */
+router.post('/:id/status', async (req, res) => {
+  const reservation = findReservation(req.params.id);
+  const { status } = req.body;
+  if (!STATUSES.includes(status)) throw httpError(400, 'Statut invalide');
+
+  let conflict = false;
+  if (!isActive(reservation) && status !== 'left' && reservation.tableIds.length) {
+    const busy = busyTables(reservation);
+    if (reservation.tableIds.some((id) => busy.has(id))) {
+      setTables(reservation, []);
+      conflict = true;
+    }
+  }
+
+  const now = new Date().toISOString();
+  if (status === 'expected') delete reservation.arrivedAt;
+  if (status !== 'expected' && statusOf(reservation) === 'expected') reservation.arrivedAt = now;
+  if (status === 'left') reservation.leftAt = now;
+  else delete reservation.leftAt;
+  reservation.status = status;
+
+  await persist();
+  res.json({ reservation, conflict });
+});
+
+router.post('/:id/unassign', async (req, res) => {
+  const reservation = findReservation(req.params.id);
+  setTables(reservation, []);
+  await persist();
+  res.json(reservation);
+});
+
+export default router;

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plan de salle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Plan de salle</span>
+    </div>
+
+    <div class="controls">
+      <div class="date-nav">
+        <button class="icon-btn" id="prevDay" aria-label="Jour précédent">‹</button>
+        <input type="date" id="date" aria-label="Date du service" />
+        <button class="icon-btn" id="nextDay" aria-label="Jour suivant">›</button>
+        <button class="btn ghost small" id="today">Aujourd'hui</button>
+      </div>
+      <div class="segmented" id="service" role="tablist" aria-label="Service">
+        <button data-value="midi">Midi</button>
+        <button data-value="soir">Soir</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="icon-btn" id="lockBtn" title="Verrouiller cet appareil (le code sera redemandé)" aria-label="Verrouiller">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      </button>
+      <button class="btn ghost" id="editToggle">Modifier le plan</button>
+      <button class="btn primary" id="newRes">Nouvelle réservation</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Liste des réservations -->
+    <aside class="panel" id="sidebar">
+      <div class="panel-head">
+        <div class="stats" id="stats"></div>
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="search" id="search" placeholder="Rechercher un nom ou un nombre de personnes" autocomplete="off" aria-label="Rechercher une réservation" />
+          <button type="button" class="search-clear" id="searchClear" aria-label="Effacer la recherche" hidden>✕</button>
+        </div>
+        <div class="filter-row">
+          <div class="segmented small" id="filters">
+            <button data-value="all">Toutes</button>
+            <button data-value="todo">À placer</button>
+            <button data-value="placed">Placées</button>
+          </div>
+          <button class="btn ghost small auto-btn" id="autoAssign" title="Placer automatiquement les réservations restantes">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></svg>
+            Auto
+          </button>
+        </div>
+      </div>
+      <ul class="res-list" id="resList"></ul>
+    </aside>
+
+    <!-- Inspecteur du mode édition -->
+    <aside class="panel" id="inspector" hidden></aside>
+
+    <section class="floor">
+      <div class="plan-wrap" id="planWrap">
+        <div class="plan-stage" id="planStage">
+          <div class="plan" id="plan"></div>
+        </div>
+      </div>
+      <div class="grouping-bar" id="groupingBar" hidden></div>
+      <div class="grouping-bar placing-bar" id="placingBar" hidden></div>
+      <div class="zoom">
+        <button class="icon-btn small pan-toggle" id="panToggle" aria-label="Déplacer la vue"
+          title="Déplacer la vue : glisser le fond fait défiler le plan au lieu de sélectionner">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+        </button>
+        <button class="icon-btn small" id="zoomOut" aria-label="Dézoomer">−</button>
+        <button class="zoom-value" id="zoomFit" title="Ajuster à l'écran">100%</button>
+        <button class="icon-btn small" id="zoomIn" aria-label="Zoomer">+</button>
+      </div>
+      <div class="legend">
+        <span><i class="dot free"></i>Libre</span>
+        <span><i class="dot reserved"></i>Réservée</span>
+        <span><i class="dot busy"></i>Clients arrivés</span>
+        <span><i class="dot merged"></i>Fusionnée</span>
+        <span><i class="dot link"></i>Fusionnable</span>
+        <span><i class="dot manual"></i>Lien manuel</span>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="resDialog">
+    <form id="resForm" novalidate>
+      <h2 id="resDialogTitle">Nouvelle réservation</h2>
+      <label class="field">
+        <span>Nom</span>
+        <input name="name" required autocomplete="off" />
+      </label>
+      <div class="row">
+        <label class="field">
+          <span>Personnes</span>
+          <input name="people" type="number" min="1" max="50" value="2" required />
+        </label>
+        <label class="field">
+          <span>Date</span>
+          <input name="date" type="date" required />
+        </label>
+        <label class="field">
+          <span>Heure</span>
+          <input name="time" type="time" step="900" required />
+        </label>
+      </div>
+      <label class="field">
+        <span>Téléphone</span>
+        <input name="phone" type="tel" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Demande du client</span>
+        <textarea name="notes" rows="2" placeholder="Anniversaire, chaise bébé, allergie…"></textarea>
+      </label>
+      <label class="field internal-field">
+        <span>Note interne <em>— visible uniquement par l'équipe</em></span>
+        <textarea name="internalNote" rows="2" placeholder="Habitué, client exigeant, acompte versé…"></textarea>
+      </label>
+      <p class="form-error" id="formError"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn danger ghost" id="deleteRes">Supprimer</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="cancelRes">Annuler</button>
+        <button type="submit" class="btn primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Code d'accès de l'équipe (protège les données clients) -->
+  <div class="auth-screen" id="authScreen" hidden>
+    <form class="auth-card" id="authForm" novalidate>
+      <span class="brand-mark auth-mark" aria-hidden="true"></span>
+      <h1 id="authTitle">Plan de salle</h1>
+      <p class="muted" id="authText">Entrez le code d'accès de l'équipe.</p>
+      <input id="authPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+        autocomplete="current-password" placeholder="Code" aria-label="Code d'accès" />
+      <input id="authPin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+        autocomplete="new-password" placeholder="Confirmer le code" aria-label="Confirmer le code" hidden />
+      <p class="form-error" id="authError"></p>
+      <button class="btn primary" type="submit" id="authSubmit">Entrer</button>
+    </form>
+  </div>
+
+  <!-- Liaison avec le serveur perdue -->
+  <div class="offline-banner" id="offlineBanner" hidden>
+    Connexion au serveur perdue — reconnexion en cours… Les modifications faites maintenant ne seront pas enregistrées.
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

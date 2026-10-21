@@ -1,0 +1,18 @@
+{
+  "name": "gestion-table",
+  "version": "1.0.0",
+  "description": "Gestion des réservations et plan de salle avec fusion automatique des tables",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
