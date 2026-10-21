@@ -138,13 +138,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--muted); font-weight: 500;
 }
 .segmented button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
-.segmented.small { flex: 1; min-width: 0; }
 .filter-row { display: flex; gap: 8px; align-items: stretch; }
 .auto-btn { height: auto; color: var(--accent); }
 .auto-btn:disabled { opacity: .45; cursor: default; }
 .auto-btn.busy svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.segmented.small button { flex: 1; padding: 5px 8px; font-size: 13px; }
 
 /* ---------- Mise en page ---------- */
 
@@ -203,7 +201,9 @@ kbd {
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 500; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
 
-/* Recherche */
+/* Recherche (+ bouton « Auto » à côté) */
+.search-row { display: flex; gap: 8px; align-items: stretch; }
+.search-row .search { flex: 1; min-width: 0; }
 .search { position: relative; display: flex; align-items: center; }
 .search svg { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
 .search input {
@@ -778,6 +778,119 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 
 /* ---------- Tactile (tablette) ---------- */
 
+/* ---------- Liste : filtres, créneaux ---------- */
+
+/* Filtres : puces avec compteur, défilement horizontal si l'écran est étroit */
+.filter-chips {
+  flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, #000 85%, transparent);
+  padding-right: 18px;
+}
+.filter-chips::-webkit-scrollbar { display: none; }
+/* Ordinateur et tablette : la place ne manque pas, les puces passent à la ligne (toutes visibles) */
+@media (min-width: 701px) {
+  .filter-chips { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; padding-right: 0; }
+  .filter-row { align-items: flex-start; }
+}
+.fchip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
+  font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.fchip b { font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fchip:hover { border-color: var(--line-strong); }
+.fchip.active { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.fchip.active b { color: inherit; opacity: .7; }
+.fchip.empty:not(.active) { opacity: .5; }
+.fchip.warn:not(.active) b { color: var(--warn); }
+
+/* Bande des créneaux : un toucher amène la liste à l'heure voulue */
+.time-strip {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+}
+.time-strip::-webkit-scrollbar { display: none; }
+.tchip {
+  position: relative; flex: none; height: 28px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: none; color: var(--ink-2);
+  font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.tchip.past { color: var(--muted); }
+.tchip.todo::after { /* petit point : il reste des réservations à placer à cette heure */
+  content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--warn);
+}
+.tchip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.time-group { scroll-margin-top: 8px; }
+
+/* Client parti : carte réduite à une ligne (touchez-la pour l'ouvrir) */
+.res-card.status-left:not(.selected) { padding-top: 8px; padding-bottom: 8px; }
+.rc-head.rc-compact .rc-btn { grid-area: tables; justify-self: end; height: 30px; }
+.rc-was { color: var(--muted); }
+
+/* Carte qu'on vient de placer (retour du plan sur téléphone) */
+.res-card.flash { animation: card-flash 1.6s ease-out; }
+@keyframes card-flash {
+  0%, 35% { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+}
+
+/* ---------- Téléphone : barre du bas, menu « Plus », fiche de table ---------- */
+
+.bottom-nav { display: none; }
+.bottom-nav button {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  height: 58px; border: 0; background: none; color: var(--muted); cursor: pointer;
+  font-size: 11.5px; font-weight: 500; transition: color .15s, background .15s;
+}
+.bottom-nav button.active { color: var(--accent); }
+.bottom-nav button.drop-hover { background: var(--accent-soft); color: var(--accent); }
+.nav-badge {
+  position: absolute; top: 5px; left: calc(50% + 7px);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--warn); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px;
+}
+
+.more-menu {
+  position: fixed; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 70;
+  display: flex; flex-direction: column; min-width: 230px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg);
+}
+.more-menu button {
+  height: 46px; padding: 0 14px; border: 0; border-radius: 9px; background: none;
+  text-align: left; font-size: 15px; color: var(--ink); cursor: pointer;
+}
+.more-menu button:active { background: var(--surface-2); }
+
+.sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(10, 10, 8, .38); animation: fade-in .2s; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
+  max-height: 72dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 14px calc(18px + env(safe-area-inset-bottom));
+  background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow-lg);
+  animation: sheet-up .22s cubic-bezier(.2, .8, .2, 1);
+}
+.sheet-grip { width: 40px; height: 4px; margin: 4px auto 10px; border-radius: 2px; background: var(--line-strong); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.sheet-head strong { font-size: 18px; }
+.sheet-head .muted { font-size: 13.5px; }
+.sheet-list { list-style: none; margin: 0; padding: 0; }
+.sheet-label { margin: 2px 0 10px; font-size: 13.5px; color: var(--ink-2); }
+.sheet-picks { display: flex; flex-direction: column; gap: 6px; }
+.pick {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+  min-height: 50px; padding: 0 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); text-align: left; cursor: pointer;
+}
+.pick:active { border-color: var(--accent); background: var(--accent-soft); }
+.pick-time { font-size: 13px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pick-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick b { font-size: 14px; }
+.pick.tight b { color: var(--warn); } /* plus de monde que de places : la barre de choix des tables s'ouvrira */
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes fade-in { from { opacity: 0; } }
+
 /* Le plan gère lui-même les gestes : glisser au doigt pour se déplacer, pincer pour zoomer */
 .plan-wrap { touch-action: none; }
 /* Pas de sélection de texte ni de menu au toucher prolongé sur les éléments qu'on manipule */
@@ -794,10 +907,11 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .icon-btn { width: 42px; height: 42px; }
   .icon-btn.small { width: 36px; height: 36px; }
   .segmented button { padding: 9px 18px; min-height: 40px; }
-  .segmented.small button { padding: 8px 10px; }
   .date-nav input { height: 42px; }
   .search input { height: 44px; font-size: 15px; }
   .search-clear { width: 36px; height: 36px; }
+  .fchip { height: 38px; padding: 0 13px; font-size: 13.5px; }
+  .tchip { height: 34px; padding: 0 12px; font-size: 13.5px; }
 
   .res-list { gap: 10px; }
   .res-card { padding: 14px 14px 10px; }
@@ -834,16 +948,60 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .legend { display: none; }
 }
 
-/* Téléphone : liste au-dessus, plan en dessous */
+/* Téléphone : application plein écran, une vue à la fois (Réservations ou Plan), barre de navigation en bas.
+   Plus de page qui défile : chaque vue gère son propre défilement, le doigt ne « se coince » plus. */
 @media (max-width: 700px) {
-  .topbar { flex-wrap: wrap; gap: 12px; padding: 12px 16px; }
-  .controls { order: 3; flex-basis: 100%; justify-content: space-between; flex-wrap: wrap; }
-  .actions { margin-left: auto; }
-  body { height: auto; }
-  .layout { grid-template-columns: 1fr; }
-  /* La liste garde une vraie hauteur (elle défile seule) ; le plan vient en dessous */
-  .panel { border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
-  .res-list { flex: none; max-height: 65vh; min-height: 200px; }
-  .floor { height: 70vh; }
-  .legend { left: 16px; right: 16px; bottom: 10px; justify-content: center; flex-wrap: wrap; border-radius: 12px; }
+  /* Page fixée à l'écran : seules la liste et le plan défilent, jamais la page entière */
+  html, body { overflow: hidden; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; height: auto; }
+
+  /* En-tête sur une ligne : date et service (le reste est dans la barre du bas) */
+  .topbar {
+    flex-wrap: nowrap; gap: 8px; padding: 8px 10px;
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+  .brand, .actions, #today { display: none; }
+  .controls { flex: 1; min-width: 0; justify-content: space-between; gap: 8px; }
+  .date-nav { gap: 2px; min-width: 0; }
+  .date-nav input { width: 128px; min-width: 0; padding: 0 6px; }
+  .segmented button { padding: 7px 12px; }
+
+  /* minmax(0, 1fr) : la colonne garde la largeur de l'écran ; ce qui est plus large défile à l'intérieur */
+  .layout { grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+  body[data-view="list"] .floor { display: none; }
+  body[data-view="plan"] .panel { display: none; }
+  .panel { border-right: 0; min-height: 0; min-width: 0; }
+
+  /* Liste : en-tête compact pour voir plus de réservations */
+  .panel-head { padding: 10px 12px 8px; gap: 8px; }
+  /* Statistiques sur une ligne compacte */
+  .stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+  .stat { flex-direction: row; align-items: baseline; gap: 4px; }
+  .stat strong { font-size: 16px; }
+  .stat span { font-size: 11.5px; }
+  .meter { flex-basis: 100%; height: 3px; margin-top: 4px; }
+  .res-list { padding: 8px 10px 16px; }
+  .rc-tables { max-width: 120px; }
+
+  .floor { min-height: 0; }
+  .legend { display: none; }
+  .zoom { right: 12px; bottom: 12px; }
+  .grouping-bar { top: 10px; width: calc(100% - 20px); }
+
+  .bottom-nav {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--surface); border-top: 1px solid var(--line);
+  }
+
+  .toasts { left: 12px; right: 12px; bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .toast { max-width: none; }
+
+  /* Formulaire : les champs passent à la ligne au lieu de s'écraser */
+  dialog { max-height: 92dvh; overflow-y: auto; }
+  dialog form { padding: 18px; }
+  .row { flex-wrap: wrap; }
+  dialog .row .field { flex: 1 1 40%; min-width: 0; }
+  /* La date a besoin de place : seule sur sa ligne, en premier */
+  dialog .row .field:has(input[type="date"]) { flex-basis: 100%; order: -1; }
 }

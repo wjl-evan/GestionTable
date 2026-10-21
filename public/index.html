@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#141413" />
   <title>Plan de salle</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -43,23 +44,22 @@
     <aside class="panel" id="sidebar">
       <div class="panel-head">
         <div class="stats" id="stats"></div>
-        <div class="search">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input type="search" id="search" placeholder="Rechercher un nom ou un nombre de personnes" autocomplete="off" aria-label="Rechercher une réservation" />
-          <button type="button" class="search-clear" id="searchClear" aria-label="Effacer la recherche" hidden>✕</button>
-        </div>
-        <div class="filter-row">
-          <div class="segmented small" id="filters">
-            <button data-value="all">Toutes</button>
-            <button data-value="todo">À placer</button>
-            <button data-value="placed">Placées</button>
+        <div class="search-row">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input type="search" id="search" placeholder="Nom, nb de personnes, table (T12)…" autocomplete="off" aria-label="Rechercher une réservation" />
+            <button type="button" class="search-clear" id="searchClear" aria-label="Effacer la recherche" hidden>✕</button>
           </div>
           <button class="btn ghost small auto-btn" id="autoAssign" title="Placer automatiquement les réservations restantes">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></svg>
             Auto
           </button>
         </div>
+        <div class="filter-row">
+          <div class="filter-chips" id="filters" role="tablist" aria-label="Filtrer les réservations"></div>
+        </div>
       </div>
+      <div class="time-strip" id="timeStrip" aria-label="Aller à un créneau"></div>
       <ul class="res-list" id="resList"></ul>
     </aside>
 
@@ -93,6 +93,35 @@
       </div>
     </section>
   </main>
+
+  <!-- Téléphone : fiche de la table touchée sur le plan -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <section class="sheet" id="tableSheet" hidden aria-live="polite"></section>
+
+  <!-- Téléphone : navigation entre la liste et le plan -->
+  <nav class="bottom-nav" id="bottomNav" aria-label="Navigation">
+    <button type="button" data-view="list">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+      <span id="navListLabel">Réservations</span><b class="nav-badge" id="navTodo" hidden></b>
+    </button>
+    <button type="button" data-view="plan">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+      <span>Plan</span>
+    </button>
+    <button type="button" id="navNew">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Nouvelle</span>
+    </button>
+    <button type="button" id="navMore" aria-haspopup="true" aria-expanded="false">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      <span>Plus</span>
+    </button>
+  </nav>
+  <div class="more-menu" id="moreMenu" hidden role="menu">
+    <button type="button" role="menuitem" data-more="today">Aller à aujourd’hui</button>
+    <button type="button" role="menuitem" data-more="edit">Modifier le plan</button>
+    <button type="button" role="menuitem" data-more="lock">Verrouiller cet appareil</button>
+  </div>
 
   <dialog id="resDialog">
     <form id="resForm" novalidate>

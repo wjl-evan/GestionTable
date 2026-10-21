@@ -27,6 +27,9 @@ const state = {
   linking: null, // id de la table en attente d'un lien (mode édition)
   grouping: null, // regroupement manuel en cours : { resId, tableIds, target, proposed }
   placing: null, // réservation à placer en touchant une table (tablette : remplace le glisser-déposer)
+  returnToList: false, // téléphone : revenir à la liste une fois la réservation placée
+  view: 'list', // téléphone : vue affichée ('list' ou 'plan')
+  sheetTable: null, // téléphone : table dont la fiche est ouverte
   search: '', // recherche dans la liste des réservations
   noteEditing: null, // id de la réservation dont on modifie la note interne dans la liste
   multiSelect: false, // mode "Sélection multiple" (= Ctrl+clic sans clavier)
@@ -102,9 +105,17 @@ function visibleReservations() {
 /** Texte en minuscules, sans accents : « Lefèvre » est trouvé en tapant « lefevre ». */
 const normalize = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+/** Table désignée par la recherche : « T12 », « t12 », « table 12 », ou le nom exact d'une table. */
+function searchedTable(q) {
+  const short = q.match(/^(?:t|table\s*)(\w+)$/);
+  const wanted = short ? `t${short[1]}` : q;
+  return state.tables.find((t) => normalize(t.name).replace(/\s+/g, '') === wanted.replace(/\s+/g, ''));
+}
+
 /**
  * Une réservation correspond-elle à la recherche ?
  *  - un nombre (« 4 », « 4 pers ») → nombre de personnes exact ;
+ *  - une table (« T12 », « table 12 ») → qui est à cette table ;
  *  - un long numéro → téléphone ;
  *  - sinon → morceau du nom.
  */
@@ -113,10 +124,22 @@ function matchesSearch(r, query) {
   if (!q) return true;
   const people = q.match(/^(\d{1,2})\s*(p|pers|personnes?)?\.?$/);
   if (people) return r.people === Number(people[1]);
+  const table = searchedTable(q);
+  if (table) return r.tableIds.includes(table.id);
   const digits = q.replace(/[\s.]/g, '');
   if (/^\d{3,}$/.test(digits)) return normalize(r.phone).replace(/[\s.]/g, '').includes(digits);
   return normalize(r.name).includes(q);
 }
+
+/** Filtres de la liste (puces avec compteur). */
+const FILTERS = [
+  { id: 'all', label: 'Toutes', test: () => true },
+  { id: 'todo', label: 'À placer', test: (r) => !r.tableIds.length && isActive(r) },
+  { id: 'expected', label: 'Attendues', test: (r) => statusOf(r) === 'expected' },
+  { id: 'arrived', label: 'En salle', test: (r) => statusOf(r) === 'arrived' },
+  { id: 'left', label: 'Parties', test: (r) => statusOf(r) === 'left' },
+];
+const currentFilter = () => FILTERS.find((f) => f.id === state.filter) ?? FILTERS[0];
 
 /** Met en évidence la partie du nom qui correspond à la recherche. */
 function highlight(name, query) {
@@ -192,15 +215,13 @@ function render() {
   renderGroupingBar(); // avant le plan : il peut annuler un regroupement devenu invalide
   renderPlacingBar();
   renderPlan();
+  renderSheet();
 }
 
 function renderControls() {
   els.date.value = state.date;
   for (const b of document.querySelectorAll('#service button')) {
     b.classList.toggle('active', b.dataset.value === state.service);
-  }
-  for (const b of document.querySelectorAll('#filters button')) {
-    b.classList.toggle('active', b.dataset.value === state.filter);
   }
   const toggle = $('#editToggle');
   toggle.textContent = state.editMode ? 'Terminer' : 'Modifier le plan';
@@ -210,6 +231,9 @@ function renderControls() {
   els.inspector.hidden = !state.editMode;
   document.body.classList.toggle('editing', state.editMode);
   document.body.classList.toggle('linking', Boolean(state.linking));
+  document.body.dataset.view = state.view;
+  for (const b of document.querySelectorAll('#bottomNav [data-view]')) b.classList.toggle('active', b.dataset.view === state.view);
+  $('#navListLabel').textContent = state.editMode ? 'Réglages' : 'Réservations';
 }
 
 function renderStats() {
@@ -220,6 +244,8 @@ function renderStats() {
   const left = sum(list.filter((r) => statusOf(r) === 'left'));
   const todo = list.filter((r) => !r.tableIds.length && isActive(r)).length;
   $('#autoAssign').disabled = todo === 0;
+  $('#navTodo').hidden = !todo || state.editMode;
+  $('#navTodo').textContent = todo;
   const capacity = state.tables.reduce((s, t) => s + t.seats, 0);
   els.stats.innerHTML = `
     <div class="stat"><strong>${covers}</strong><span>couverts / ${capacity}</span></div>
@@ -308,6 +334,17 @@ function cardHtml(r) {
   // À placer : orange ; rouge si les clients sont déjà là sans table
   const todo = status === 'left' ? '' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
 
+  // Clients partis : une seule ligne (plus rien à faire), sauf si on touche la carte pour l'ouvrir
+  if (status === 'left' && state.selectedRes !== r.id && state.noteEditing !== r.id) {
+    return `
+      <div class="rc-head rc-compact">
+        <span class="rc-name">${highlight(r.name, state.search)}</span>
+        <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
+        <button type="button" class="rc-btn" data-action="restore" title="Erreur ou client revenu : la réservation reprend ses tables si elles sont libres">${ICONS.undo}<span>Rétablir</span></button>
+        <span class="rc-sub">${statusTag}${placed ? `<span class="rc-was">${esc(tableNames(r))}</span>` : ''}</span>
+      </div>`;
+  }
+
   // Ligne 1 : ce qu'on cherche du regard (nom, nombre de personnes, table). Ligne 2 : le reste, plus discret.
   return `
     <div class="rc-head">
@@ -343,21 +380,22 @@ async function saveInternalNote(r, text) {
 
 function renderList() {
   const all = visibleReservations();
-  const byFilter = all.filter((r) =>
-    state.filter === 'todo'
-      ? !r.tableIds.length && isActive(r)
-      : state.filter === 'placed'
-        ? r.tableIds.length && isActive(r)
-        : true
-  );
+  const filter = currentFilter();
+  const byFilter = all.filter(filter.test);
   const list = byFilter.filter((r) => matchesSearch(r, state.search));
 
+  renderFilters(all);
   $('#searchClear').hidden = !state.search;
   els.resList.innerHTML = '';
+  renderTimeStrip(list);
   if (!list.length) {
     els.resList.innerHTML = `<li class="empty">${emptyListMessage(all, byFilter)}</li>`;
     $('#showOtherService', els.resList)?.addEventListener('click', () => {
       state.service = state.service === 'midi' ? 'soir' : 'midi';
+      render();
+    });
+    $('#showAllFilter', els.resList)?.addEventListener('click', () => {
+      state.filter = 'all';
       render();
     });
     return;
@@ -376,52 +414,135 @@ function renderList() {
       currentTime = r.time;
       els.resList.append(timeHeader(r.time, list.filter((x) => x.time === r.time)));
     }
-    const status = statusOf(r);
-    const editing = state.noteEditing === r.id;
-    const li = document.createElement('li');
-    li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
-    li.draggable = status !== 'left' && !editing; // pas de glisser pendant la saisie de la note
-    li.dataset.id = r.id;
-    li.innerHTML = cardHtml(r);
-
-    li.addEventListener('dragstart', (e) => startDrag(e, r.id));
-    li.addEventListener('dragend', endDrag);
-    // Au doigt : appui long puis glisser vers une table
-    li.addEventListener('pointerdown', (e) => {
-      if (status !== 'left' && !editing && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
-    });
-    li.addEventListener('click', (e) => {
-      if (e.target.closest('a, textarea')) return; // lien téléphone, saisie de la note
-      const action = e.target.closest('[data-action]')?.dataset.action;
-      if (action === 'edit') return openDialog(r);
-      if (action === 'unassign') return unassign(r.id);
-      if (action === 'arrive') return setStatus(r, 'arrived');
-      if (action === 'unarrive') return setStatus(r, 'expected');
-      if (action === 'leave') return setStatus(r, 'left');
-      if (action === 'restore') return setStatus(r, 'arrived');
-      if (action === 'note') {
-        state.noteEditing = editing ? null : r.id;
-        renderList();
-        $(`[data-id="${r.id}"] textarea`, els.resList)?.focus();
-        return;
-      }
-      if (action === 'note-cancel') {
-        state.noteEditing = null;
-        return renderList();
-      }
-      if (action === 'note-save') return saveInternalNote(r, $('textarea', li).value);
-      if (e.target.closest('.rc-note-editor')) return;
-      // Toucher une carte = « où la placer ? » ; la retoucher pendant ce mode l'annule
-      const cancelling = state.placing === r.id || (!isActive(r) && state.selectedRes === r.id);
-      state.selectedRes = cancelling ? null : r.id;
-      state.placing = !cancelling && isActive(r) ? r.id : null;
-      render();
-    });
-    li.addEventListener('dblclick', (e) => {
-      if (!e.target.closest('button, a, .rc-note-editor')) openDialog(r);
-    });
-    els.resList.append(li);
+    els.resList.append(buildCard(r));
   }
+  syncTimeStrip();
+}
+
+/** Carte d'une réservation, avec ses actions (utilisée dans la liste et dans la fiche du plan sur téléphone). */
+function buildCard(r) {
+  const status = statusOf(r);
+  const editing = state.noteEditing === r.id;
+  const li = document.createElement('li');
+  li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
+  li.draggable = status !== 'left' && !editing; // pas de glisser pendant la saisie de la note
+  li.dataset.id = r.id;
+  li.innerHTML = cardHtml(r);
+
+  li.addEventListener('dragstart', (e) => startDrag(e, r.id));
+  li.addEventListener('dragend', endDrag);
+  // Au doigt : appui long puis glisser vers une table
+  li.addEventListener('pointerdown', (e) => {
+    if (status !== 'left' && !editing && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
+  });
+  li.addEventListener('click', (e) => {
+    if (e.target.closest('a, textarea')) return; // lien téléphone, saisie de la note
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'edit') return openDialog(r);
+    if (action === 'unassign') return unassign(r.id);
+    if (action === 'arrive') return setStatus(r, 'arrived');
+    if (action === 'unarrive') return setStatus(r, 'expected');
+    if (action === 'leave') return setStatus(r, 'left');
+    if (action === 'restore') return setStatus(r, 'arrived');
+    if (action === 'note') {
+      state.noteEditing = editing ? null : r.id;
+      render();
+      $(`.res-card[data-id="${r.id}"] textarea`)?.focus();
+      return;
+    }
+    if (action === 'note-cancel') {
+      state.noteEditing = null;
+      return render();
+    }
+    if (action === 'note-save') return saveInternalNote(r, $('textarea', li).value);
+    if (e.target.closest('.rc-note-editor')) return;
+    onCardTap(r);
+  });
+  li.addEventListener('dblclick', (e) => {
+    if (!e.target.closest('button, a, .rc-note-editor')) openDialog(r);
+  });
+  return li;
+}
+
+/**
+ * Toucher une carte = « où la placer ? » ; la retoucher pendant ce mode l'annule.
+ * Sur téléphone, le plan s'ouvre pour choisir la table, puis on revient à la liste.
+ */
+function onCardTap(r) {
+  const cancelling = state.placing === r.id || (!isActive(r) && state.selectedRes === r.id);
+  state.selectedRes = cancelling ? null : r.id;
+  state.placing = !cancelling && isActive(r) ? r.id : null;
+  state.returnToList = Boolean(state.placing && isPhone() && state.view === 'list');
+  closeSheet();
+  if (state.placing && isPhone()) setView('plan');
+  render();
+}
+
+/** Puces de filtre avec le nombre de réservations de chaque catégorie. */
+function renderFilters(all) {
+  const box = $('#filters');
+  box.innerHTML = FILTERS.map((f) => {
+    const n = all.filter(f.test).length;
+    const active = f.id === currentFilter().id;
+    const warn = f.id === 'todo' && n > 0 ? ' warn' : '';
+    return `<button type="button" role="tab" aria-selected="${active}" class="fchip${active ? ' active' : ''}${n ? '' : ' empty'}${warn}" data-value="${f.id}">
+      ${f.label}<b>${n}</b></button>`;
+  }).join('');
+}
+
+/** Bande des créneaux horaires : un toucher amène la liste au créneau voulu. */
+function renderTimeStrip(list) {
+  const strip = $('#timeStrip');
+  const times = [...new Set(list.map((r) => r.time))];
+  strip.hidden = times.length < 3; // inutile pour 1 ou 2 créneaux
+  if (strip.hidden) return (strip.innerHTML = '');
+  const now = localDate() === state.date ? new Date().toTimeString().slice(0, 5) : null;
+  strip.innerHTML = times
+    .map((t) => {
+      const todo = list.some((r) => r.time === t && !r.tableIds.length && isActive(r));
+      return `<button type="button" class="tchip${todo ? ' todo' : ''}${now && t <= now ? ' past' : ''}" data-time="${esc(t)}">${esc(t)}</button>`;
+    })
+    .join('');
+}
+
+/** Met en évidence, dans la bande, le créneau affiché en haut de la liste. */
+function syncTimeStrip() {
+  const strip = $('#timeStrip');
+  if (strip.hidden) return;
+  // Les en-têtes restent collés en haut : on se repère à la première carte de chaque créneau, qui elle défile
+  const top = els.resList.getBoundingClientRect().top;
+  let current = null;
+  for (const h of els.resList.querySelectorAll('.time-group')) {
+    const first = h.nextElementSibling;
+    if (first && first.getBoundingClientRect().top <= top + h.offsetHeight + 16) current = h.dataset.time;
+  }
+  current ??= els.resList.querySelector('.time-group')?.dataset.time;
+  for (const c of strip.querySelectorAll('.tchip')) {
+    const on = c.dataset.time === current;
+    c.classList.toggle('active', on);
+    if (on && strip.dataset.current !== current) {
+      strip.scrollTo({ left: c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2, behavior: 'smooth' });
+    }
+  }
+  strip.dataset.current = current ?? '';
+}
+
+function scrollToTime(time) {
+  const header = els.resList.querySelector(`.time-group[data-time="${time}"]`);
+  const first = header?.nextElementSibling;
+  if (!first) return;
+  // Première carte du créneau juste sous l'en-tête (qui, lui, reste collé en haut)
+  const list = els.resList.getBoundingClientRect();
+  const delta = first.getBoundingClientRect().top - list.top - header.offsetHeight - 6;
+  els.resList.scrollTo({ top: els.resList.scrollTop + delta, behavior: 'smooth' });
+}
+
+/** Fait défiler la liste seule (jamais la page) pour montrer `el` en haut ou au centre. */
+function scrollListTo(el, where = 'start', smooth = true) {
+  const list = els.resList.getBoundingClientRect();
+  const box = el.getBoundingClientRect();
+  const delta = where === 'center' ? box.top - list.top - (list.height - box.height) / 2 : box.top - list.top - 2;
+  els.resList.scrollTo({ top: els.resList.scrollTop + delta, behavior: smooth ? 'smooth' : 'auto' });
 }
 
 /** En-tête d'un créneau horaire : heure, nombre de réservations et de couverts, combien restent à placer. */
@@ -430,6 +551,7 @@ function timeHeader(time, group) {
   const todo = group.filter((r) => !r.tableIds.length && isActive(r)).length;
   const li = document.createElement('li');
   li.className = 'time-group';
+  li.dataset.time = time;
   li.innerHTML = `
     <span class="tg-time">${esc(time)}</span>
     <span class="tg-meta">${group.length} rés. · ${covers} couv.${todo ? ` · <b>${todo} à placer</b>` : ''}</span>
@@ -440,7 +562,7 @@ function timeHeader(time, group) {
 /** Liste vide : explique pourquoi, et propose l'autre service si la recherche y trouve quelqu'un. */
 function emptyListMessage(all, byFilter) {
   if (!all.length) return 'Aucune réservation pour ce service.';
-  if (!state.search) return 'Aucune réservation dans ce filtre.';
+  if (!state.search) return `Aucune réservation « ${esc(currentFilter().label)} ».<br><button type="button" class="link-btn" id="showAllFilter">Voir toutes les réservations →</button>`;
   const other = state.service === 'midi' ? 'soir' : 'midi';
   const elsewhere = state.reservations.filter((r) => serviceOf(r.time) === other && matchesSearch(r, state.search)).length;
   const hidden = all.filter((r) => matchesSearch(r, state.search)).length - byFilter.filter((r) => matchesSearch(r, state.search)).length;
@@ -973,9 +1095,11 @@ function tableElement(t, res) {
     if (panned) return; // fin d'un glisser du plan au doigt, pas un toucher
     if (state.grouping) return toggleGroupingTable(t, res);
     if (state.placing) return placeOnTable(t, res);
+    if (isPhone()) return openSheet(t.id); // téléphone : fiche de la table en bas de l'écran
     state.selectedRes = res ? (state.selectedRes === res.id ? null : res.id) : null;
     render();
-    if (res) els.resList.querySelector(`[data-id="${res.id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const card = res && els.resList.querySelector(`.res-card[data-id="${res.id}"]`);
+    if (card) scrollListTo(card, 'center');
   });
   el.addEventListener('dblclick', () => res && openDialog(res));
   return el;
@@ -985,27 +1109,84 @@ const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 2;
 const PLAN_PAD = 32;
 
-function fitScale() {
-  const { planWrap } = els;
+/**
+ * Zone à cadrer quand on « ajuste » : les tables et éléments (avec une marge pour les chaises),
+ * plutôt que toute la salle, souvent bien plus grande et vide sur les bords.
+ * En mode édition, toute la salle (pour pouvoir placer des éléments partout).
+ */
+function fitBounds() {
   const { room } = state;
-  const s = Math.min((planWrap.clientWidth - PLAN_PAD * 2) / room.w, (planWrap.clientHeight - PLAN_PAD * 2) / room.h, 1.5);
+  const items = [...state.tables, ...state.zones];
+  if (state.editMode || !items.length) return { x: 0, y: 0, w: room.w, h: room.h };
+  const m = 40;
+  const x1 = Math.max(0, Math.min(...items.map((i) => i.x)) - m);
+  const y1 = Math.max(0, Math.min(...items.map((i) => i.y)) - m);
+  const x2 = Math.min(room.w, Math.max(...items.map((i) => i.x + i.w)) + m);
+  const y2 = Math.min(room.h, Math.max(...items.map((i) => i.y + i.h)) + m);
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
+/** Facteur max entre « tout voir en largeur » et l'échelle retenue sur téléphone (on défile alors de côté). */
+const PHONE_FIT_BOOST = 2.5;
+
+function fitScale(b = fitBounds()) {
+  const { planWrap } = els;
+  const byWidth = (planWrap.clientWidth - PLAN_PAD * 2) / b.w;
+  const byHeight = (planWrap.clientHeight - PLAN_PAD * 2) / b.h;
+  let s = Math.min(byWidth, byHeight, 1.5);
+  // Écran en hauteur (téléphone, tablette en portrait) et salle tout en largeur : tout faire tenir
+  // rendrait les tables minuscules, avec un grand vide dessous. On privilégie la taille (tables
+  // qu'on peut toucher) et on fait glisser le plan de côté.
+  // (Sur un grand écran avec souris, on garde la vue d'ensemble de toute la salle.)
+  const touchOrNarrow = isPhone() || matchMedia('(pointer: coarse), (max-width: 1100px)').matches;
+  if (touchOrNarrow && byHeight > byWidth * 1.5) {
+    const boost = isPhone() ? PHONE_FIT_BOOST : 2.2;
+    s = Math.min(byHeight * 0.92, byWidth * boost, 1.5);
+  }
   return Math.max(ZOOM_MIN, s);
 }
+
+let lastFitKey = '';
 
 /** Échelle ajustée à l'écran, ou zoom manuel avec défilement si la salle dépasse. */
 function updateScale() {
   const { planWrap, planStage, plan } = els;
   const { room } = state;
-  const s = state.zoom ?? fitScale();
-  state.scale = s;
   const w = planWrap.clientWidth;
   const h = planWrap.clientHeight;
-  const sw = room.w * s;
-  const sh = room.h * s;
-  planStage.style.width = `${Math.max(w, sw + PLAN_PAD * 2)}px`;
-  planStage.style.height = `${Math.max(h, sh + PLAN_PAD * 2)}px`;
-  const ox = Math.max(PLAN_PAD, (w - sw) / 2);
-  const oy = Math.max(PLAN_PAD, (h - sh) / 2);
+  if (!w || !h) return; // plan masqué (vue « Réservations » sur téléphone)
+  let s, ox, oy;
+  if (state.zoom === null) {
+    // Ajusté : les tables remplissent l'écran, centrées
+    const b = fitBounds();
+    s = fitScale(b);
+    const sw = b.w * s;
+    const sh = b.h * s;
+    const stageW = Math.max(w, sw + PLAN_PAD * 2);
+    const stageH = Math.max(h, sh + PLAN_PAD * 2);
+    planStage.style.width = `${stageW}px`;
+    planStage.style.height = `${stageH}px`;
+    ox = Math.max(PLAN_PAD, (w - sw) / 2) - b.x * s;
+    oy = Math.max(PLAN_PAD, (h - sh) / 2) - b.y * s;
+    // Nouveau cadrage (écran redimensionné, retour à « Ajuster »…) : on centre la vue ;
+    // sinon on garde l'endroit où l'utilisateur a fait glisser le plan
+    const key = `${w}x${h}:${s.toFixed(4)}:${b.x},${b.y},${b.w},${b.h}`;
+    if (key !== lastFitKey) {
+      lastFitKey = key;
+      planWrap.scrollLeft = (stageW - w) / 2;
+      planWrap.scrollTop = (stageH - h) / 2;
+    }
+  } else {
+    s = state.zoom;
+    lastFitKey = '';
+    const sw = room.w * s;
+    const sh = room.h * s;
+    planStage.style.width = `${Math.max(w, sw + PLAN_PAD * 2)}px`;
+    planStage.style.height = `${Math.max(h, sh + PLAN_PAD * 2)}px`;
+    ox = Math.max(PLAN_PAD, (w - sw) / 2);
+    oy = Math.max(PLAN_PAD, (h - sh) / 2);
+  }
+  state.scale = s;
   plan.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
   state.offset = { x: ox, y: oy };
   $('#zoomFit').textContent = `${Math.round(s * 100)}%`;
@@ -1138,6 +1319,21 @@ function moveTouchDrag(x, y) {
   if (target.table) previewTable(target.table, res);
   else clearPreview();
   els.sidebar.classList.toggle('drop-target', canUnassignByDrop(target, res));
+
+  // Téléphone : la liste et le plan ne tiennent pas ensemble ; survoler « Plan » l'ouvre
+  const overPlanTab = isPhone() && state.view === 'list' && document.elementFromPoint(x, y)?.closest('#bottomNav [data-view="plan"]');
+  $('#bottomNav [data-view="plan"]').classList.toggle('drop-hover', Boolean(overPlanTab));
+  if (overPlanTab && !touchDrag.navTimer) {
+    touchDrag.navTimer = setTimeout(() => {
+      if (!touchDrag) return;
+      touchDrag.navTimer = null;
+      state.returnToList = true;
+      setView('plan');
+    }, 350);
+  } else if (!overPlanTab && touchDrag.navTimer) {
+    clearTimeout(touchDrag.navTimer);
+    touchDrag.navTimer = null;
+  }
 }
 
 /** Déposer sur la liste retire du plan, seulement si on a pris la réservation depuis une table du plan. */
@@ -1149,11 +1345,15 @@ function dropTouchDrag(x, y) {
   const target = touchTarget(x, y);
   const unassignIt = canUnassignByDrop(target, resById(resId));
   finishTouchDrag();
-  if (target.table) assign(resId, target.table.id);
-  else if (unassignIt) unassign(resId);
+  if (target.table) return assign(resId, target.table.id);
+  if (unassignIt) unassign(resId);
+  backToListIfNeeded(); // lâché à côté : on revient là où on était
+  render();
 }
 
 function finishTouchDrag() {
+  clearTimeout(touchDrag.navTimer);
+  $('#bottomNav [data-view="plan"]').classList.remove('drop-hover');
   touchDrag.ghost.remove();
   touchDrag.source.classList.remove('drag-source');
   touchDrag = null;
@@ -1648,23 +1848,167 @@ function replaceReservation(r) {
  */
 async function assign(resId, tableId) {
   const before = resById(resId);
-  if (before.tableIds.length === 1 && before.tableIds[0] === tableId) return;
+  if (before.tableIds.length === 1 && before.tableIds[0] === tableId) {
+    backToListIfNeeded(); // déjà sur cette table
+    return render();
+  }
   const busy = busyExcept(resId);
   const table = tableById(tableId);
   if (!busy.has(tableId) && table.seats < before.people) {
     const combo = findCombination(state.tables, tableId, before.people, busy, state.groups);
     return startGrouping(resId, combo || [tableId], { proposed: Boolean(combo) });
   }
+  let placed = false;
   try {
     const { reservation } = await api.assign(resId, tableId);
     replaceReservation(reservation);
     state.selectedRes = reservation.id;
+    placed = true;
     toast(`${reservation.name} placé·e en ${tableNames(reservation)}`, 'success');
   } catch (err) {
     toast(err.message, 'error');
   }
   render();
+  if (placed) afterPlaced(resId);
 }
+
+/* ---------- Téléphone : deux vues (Réservations / Plan) ---------- */
+
+const phoneMQ = matchMedia('(max-width: 700px)');
+const isPhone = () => phoneMQ.matches;
+
+/** Affiche la liste ou le plan (sur téléphone, un seul des deux tient à l'écran). */
+function setView(view) {
+  if (state.view === view) return;
+  state.view = view;
+  if (view === 'list') closeSheet();
+  renderControls();
+  // Le plan était masqué : on recalcule son cadrage une fois affiché
+  requestAnimationFrame(updateScale);
+}
+
+/** Après un placement lancé depuis la liste sur téléphone : retour à la liste, sur la carte. */
+function afterPlaced(resId) {
+  if (!state.returnToList) return;
+  state.returnToList = false;
+  if (!isPhone()) return;
+  setView('list');
+  requestAnimationFrame(() => {
+    const card = els.resList.querySelector(`.res-card[data-id="${resId}"]`);
+    if (!card) return;
+    scrollListTo(card, 'center');
+    card.classList.add('flash');
+  });
+}
+
+function backToListIfNeeded() {
+  if (state.returnToList && isPhone()) setView('list');
+  state.returnToList = false;
+}
+
+$('#bottomNav').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.view) {
+    setView(btn.dataset.view);
+    render();
+  } else if (btn.id === 'navNew') {
+    openDialog();
+  } else if (btn.id === 'navMore') {
+    toggleMoreMenu();
+  }
+});
+
+/* Menu « Plus » : actions moins fréquentes, rangées pour libérer l'en-tête */
+function toggleMoreMenu(open = $('#moreMenu').hidden) {
+  $('#moreMenu').hidden = !open;
+  $('#navMore').setAttribute('aria-expanded', String(open));
+  const edit = $('#moreMenu [data-more="edit"]');
+  edit.textContent = state.editMode ? 'Terminer la modification du plan' : 'Modifier le plan';
+}
+$('#moreMenu').addEventListener('click', (e) => {
+  const action = e.target.closest('[data-more]')?.dataset.more;
+  toggleMoreMenu(false);
+  if (action === 'today') setDate(localDate());
+  if (action === 'edit') $('#editToggle').click();
+  if (action === 'lock') $('#lockBtn').click();
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!$('#moreMenu').hidden && !e.target.closest('#moreMenu, #navMore')) toggleMoreMenu(false);
+});
+
+phoneMQ.addEventListener('change', () => {
+  closeSheet();
+  toggleMoreMenu(false);
+  render();
+});
+
+/* ---------- Téléphone : fiche de la table touchée ---------- */
+
+function openSheet(tableId) {
+  state.sheetTable = tableId;
+  renderSheet();
+}
+
+function closeSheet() {
+  if (!state.sheetTable) return;
+  state.sheetTable = null;
+  renderSheet();
+}
+
+/**
+ * Fiche en bas de l'écran : la réservation de la table (avec ses boutons),
+ * ou, si la table est libre, les réservations à placer pour l'y installer en un toucher.
+ */
+function renderSheet() {
+  const sheet = $('#tableSheet');
+  const t = state.sheetTable && tableById(state.sheetTable);
+  const show = Boolean(t) && isPhone() && !state.editMode && state.view === 'plan';
+  sheet.hidden = $('#sheetBackdrop').hidden = !show;
+  if (!show) {
+    state.sheetTable = null;
+    sheet.innerHTML = '';
+    return;
+  }
+  const res = occupancy().get(t.id);
+  const groupNames = res && res.tableIds.length > 1 ? ` · ${esc(tableNames(res))}` : '';
+  sheet.innerHTML = `
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <header class="sheet-head">
+      <div><strong>${esc(t.name)}</strong> <span class="muted">${t.seats} places${groupNames}</span></div>
+      <button type="button" class="icon-btn" data-sheet="close" aria-label="Fermer">✕</button>
+    </header>`;
+
+  if (res) {
+    const list = document.createElement('ul');
+    list.className = 'sheet-list';
+    list.append(buildCard(res));
+    sheet.append(list);
+  } else {
+    const todo = activeReservations().filter((r) => !r.tableIds.length);
+    sheet.insertAdjacentHTML(
+      'beforeend',
+      todo.length
+        ? `<p class="sheet-label">Table libre — installer une réservation à placer :</p>
+           <div class="sheet-picks">${todo
+             .map((r) => `<button type="button" class="pick${r.people > t.seats ? ' tight' : ''}" data-pick="${r.id}">
+                 <span class="pick-time">${esc(r.time)}</span><span class="pick-name">${esc(r.name)}</span><b>${r.people} pers.</b></button>`)
+             .join('')}</div>`
+        : '<p class="sheet-label">Table libre. Aucune réservation à placer pour ce service.</p>'
+    );
+  }
+}
+
+$('#tableSheet').addEventListener('click', (e) => {
+  if (e.target.closest('[data-sheet="close"]')) return closeSheet();
+  const pick = e.target.closest('[data-pick]');
+  if (pick) {
+    const tableId = state.sheetTable;
+    closeSheet();
+    assign(pick.dataset.pick, tableId);
+  }
+});
+$('#sheetBackdrop').addEventListener('click', closeSheet);
 
 /* ---------- Placement en touchant une table (tablette) ---------- */
 
@@ -1676,13 +2020,18 @@ function placeOnTable(t, occupant) {
     return;
   }
   state.placing = null;
-  if (occupant) return render(); // déjà sur cette table
+  if (occupant) {
+    // déjà sur cette table : rien à changer, on revient simplement là où on était
+    backToListIfNeeded();
+    return render();
+  }
   assign(resId, t.id);
 }
 
 function cancelPlacing() {
   state.placing = null;
   state.selectedRes = null;
+  backToListIfNeeded();
   render();
 }
 
@@ -1723,6 +2072,7 @@ function startGrouping(resId, tableIds, { proposed = false } = {}) {
 function cancelGrouping() {
   if (!state.grouping) return;
   state.grouping = null;
+  backToListIfNeeded();
   render();
 }
 
@@ -1739,6 +2089,7 @@ function toggleGroupingTable(t, occupant) {
 
 async function confirmGrouping() {
   const { resId, tableIds } = state.grouping;
+  let placed = false;
   try {
     const { reservation, capacity } = await api.assignManual(resId, tableIds);
     replaceReservation(reservation);
@@ -1746,10 +2097,12 @@ async function confirmGrouping() {
     state.selectedRes = reservation.id;
     const tight = reservation.people > capacity ? ` — ${capacity} places pour ${reservation.people}, on se serre` : '';
     toast(`${reservation.name} placé·e en ${tableNames(reservation)}${tight}`, 'success');
+    placed = true;
   } catch (err) {
     toast(err.message, 'error');
   }
   render();
+  if (placed) afterPlaced(resId);
 }
 
 function renderGroupingBar() {
@@ -1944,13 +2297,22 @@ $('#searchClear').addEventListener('click', () => {
   $('#search').focus();
 });
 
-document.querySelectorAll('#filters button').forEach((b) =>
-  b.addEventListener('click', () => {
-    state.filter = b.dataset.value;
-    renderList();
-    renderControls();
-  })
-);
+$('#filters').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-value]');
+  if (!chip) return;
+  state.filter = chip.dataset.value;
+  renderList();
+  els.resList.scrollTop = 0;
+});
+$('#timeStrip').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-time]');
+  if (chip) scrollToTime(chip.dataset.time);
+});
+let stripFrame = 0;
+els.resList.addEventListener('scroll', () => {
+  cancelAnimationFrame(stripFrame);
+  stripFrame = requestAnimationFrame(syncTimeStrip);
+});
 
 $('#editToggle').addEventListener('click', () => {
   state.editMode = !state.editMode;
@@ -2028,6 +2390,24 @@ function startMarquee(e) {
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
 }
+
+/* ---------- Gestes tactiles : double-toucher pour zoomer ---------- */
+
+// Double-toucher le fond du plan : zoom sur cet endroit ; une fois bien zoomé, retour à « Ajuster »
+let lastTap = null;
+els.planWrap.addEventListener('pointerup', (e) => {
+  if (e.pointerType !== 'touch' || panned || pinch || touchDrag) return;
+  if (e.target.closest('.table, .zone, .handle')) return (lastTap = null);
+  const now = Date.now();
+  if (lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+    lastTap = null;
+    const rect = els.planWrap.getBoundingClientRect();
+    const zoomedIn = state.scale > fitScale() * 1.6;
+    setZoom(zoomedIn ? null : state.scale * 2.2, e.clientX - rect.left, e.clientY - rect.top);
+  } else {
+    lastTap = { t: now, x: e.clientX, y: e.clientY };
+  }
+});
 
 /* ---------- Gestes tactiles : pincer pour zoomer ---------- */
 
