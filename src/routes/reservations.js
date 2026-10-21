@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { getDb, persist, httpError } from '../store.js';
+import { archivedReservations } from '../retention.js';
 import { autoAssign, capacityOf, findCombination, isActive, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
 
 const router = Router();
@@ -57,12 +58,15 @@ function setTables(reservation, tableIds, manual = false) {
   else delete reservation.manualGroup;
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { date } = req.query;
   let list = getDb().reservations;
   if (date) {
     if (!DATE_RE.test(date)) throw httpError(400, 'Date invalide');
     list = list.filter((r) => r.date === date);
+    // Date ancienne : on ajoute ce qui est aux archives (consultation seule, marqué « archived »)
+    const ids = new Set(list.map((r) => r.id));
+    list = [...list, ...(await archivedReservations(date)).filter((r) => !ids.has(r.id))];
   }
   res.json([...list].sort((a, b) => a.time.localeCompare(b.time)));
 });

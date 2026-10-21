@@ -11,6 +11,10 @@
   --accent-ink: #ffffff;
   --accent-soft: #e3eee9;
   --accent-line: #9cc2b3;
+  /* Réservée (clients attendus) : bleu — Arrivés : vert (--accent) */
+  --resv: #3563c9;
+  --resv-soft: #e6edfb;
+  --resv-line: #9db5ea;
   --danger: #c2410c;
   --danger-soft: #fbe9e1;
   --warn: #b7791f;
@@ -38,6 +42,9 @@
     --accent-ink: #0f1a16;
     --accent-soft: #1d3029;
     --accent-line: #3d7461;
+    --resv: #7fa3f2;
+    --resv-soft: #1b2540;
+    --resv-line: #3d5694;
     --danger: #f08a5d;
     --danger-soft: #3a2219;
     --floor: #181817;
@@ -271,7 +278,8 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 
 /* Code couleur discret : un petit point */
 .rc-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.rc-status.expected .rc-dot { border: 1.5px solid var(--muted); }
+.rc-status.expected { color: var(--resv); }
+.rc-status.expected .rc-dot { border: 1.5px solid var(--resv); }
 .rc-status.arrived { color: var(--accent); }
 .rc-status.arrived .rc-dot { background: var(--accent); }
 .rc-status.left .rc-dot { background: var(--line-strong); }
@@ -292,6 +300,7 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
   white-space: nowrap;
 }
 .pill.ok { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.pill.ok.resv { background: var(--resv-soft); color: var(--resv); }
 .pill.todo { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: transparent; }
 .pill.todo.urgent { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 /* Pastille de table dans la liste : lisible en un coup d'œil */
@@ -401,6 +410,15 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .link-row .pill.ok { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 #startLink { align-self: flex-start; }
 #startLink.active { background: var(--warn); border-color: var(--warn); color: #fff; }
+/* Champ numérique avec son unité (jours, mois) */
+.unit-input { display: flex; align-items: center; gap: 8px; }
+.unit-input input { min-width: 0; }
+.unit-input em { font-style: normal; font-size: 12.5px; color: var(--muted); }
+/* Service archivé : consultation seule */
+.archived-note {
+  padding: 10px 12px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.45;
+  background: var(--surface-2); border: 1px dashed var(--line-strong); color: var(--ink-2);
+}
 .clear-plan { align-self: flex-start; margin-top: 14px; }
 
 /* ---------- Champs ---------- */
@@ -495,7 +513,7 @@ body.editing .plan-wrap.pan-mode { cursor: grab; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; border: 1.5px solid var(--line-strong); background: var(--surface); }
 .dot.busy { background: var(--accent-soft); border-color: var(--accent); }
-.dot.reserved { border: 1.5px dashed var(--accent); }
+.dot.reserved { background: var(--resv-soft); border: 1.5px dashed var(--resv); }
 .dot.merged { background: var(--accent-soft); border: 1.5px dashed var(--accent); }
 .dot.link { border: 0; height: 2px; width: 14px; border-radius: 0; background: repeating-linear-gradient(90deg, var(--accent) 0 4px, transparent 4px 7px); }
 .dot.manual { border: 0; height: 3px; width: 14px; border-radius: 0; background: repeating-linear-gradient(90deg, var(--warn) 0 7px, transparent 7px 10px); }
@@ -580,7 +598,9 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
   background: var(--line-strong);
   transition: background .15s;
 }
-.table.busy .chair { background: var(--accent-line); }
+/* Chaises occupées par les clients de la réservation (pas toute la table) */
+.table.busy .chair.taken { background: var(--accent); }
+.table.busy.expected .chair.taken { background: var(--resv); }
 
 .t-name { font-weight: 600; font-size: 14px; }
 .t-seats { font-size: 11.5px; color: var(--muted); }
@@ -589,15 +609,14 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
 .t-tag { position: absolute; top: 5px; left: 7px; font-size: 10px; font-weight: 600; color: var(--muted); }
 .table.round .t-tag { position: static; }
 
+/* Clients arrivés : vert, plein */
 .table.busy .top { background: var(--accent-soft); border-color: var(--accent); }
 .table.busy { cursor: grab; }
-/* Réservée mais clients pas encore là : contour pointillé, fond léger */
-.table.busy.expected .top {
-  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
-  border-style: dashed;
-}
-.table.busy.expected .chair { background: color-mix(in srgb, var(--accent-line) 55%, var(--line-strong)); }
-.merge.expected { border-style: dashed; background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface)); }
+/* Réservée, clients pas encore là : bleu, contour pointillé (repérable même sans voir les couleurs) */
+.table.busy.expected .top { background: var(--resv-soft); border-color: var(--resv); border-style: dashed; }
+.table.busy.expected .t-meta { color: var(--resv); }
+.merge.expected { border-style: dashed; border-color: var(--resv); background: var(--resv-soft); }
+.merge-label.expected .t-meta { color: var(--resv); }
 
 /* Tables fusionnées : fond commun, les tables deviennent transparentes */
 .merge {
@@ -610,20 +629,36 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
   animation: merge-in .35s cubic-bezier(.2, .8, .2, 1);
 }
 .merge.selected { outline-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+.merge.expected.selected { outline-color: color-mix(in srgb, var(--resv) 25%, transparent); }
 .merge-label {
   position: absolute; z-index: 3; pointer-events: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .merge-label .t-guest { font-size: 14px; }
-.table.grouped .top { background: transparent; border-color: transparent; }
-.table.grouped:hover .top { border-color: transparent; }
+/* (sélecteur renforcé : doit l'emporter sur les styles « réservé » / « arrivé ») */
+.table.busy.grouped .top,
+.table.busy.grouped.expected .top { background: transparent; border-color: transparent; box-shadow: none; }
 
 @keyframes merge-in {
   from { transform: scale(.96); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
 
-.table.selected:not(.grouped) .top { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Réservation sélectionnée : sa table ressort nettement (halo qui pulse deux fois, puis reste) */
+.table.selected { z-index: 4; }
+.table.selected:not(.grouped) .top {
+  --hl: var(--accent);
+  border-width: 2.5px;
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px color-mix(in srgb, var(--hl) 55%, transparent);
+  animation: table-highlight 1s ease-out 2;
+}
+.table.busy.expected.selected .top { --hl: var(--resv); }
+.merge.selected { outline-width: 6px; animation: table-highlight-merge 1s ease-out 2; }
+@keyframes table-highlight {
+  0% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px color-mix(in srgb, var(--hl) 55%, transparent); }
+  50% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 16px color-mix(in srgb, var(--hl) 10%, transparent); }
+}
+@keyframes table-highlight-merge { 50% { outline-width: 14px; } }
 
 /* Aperçu pendant le glisser-déposer */
 body.dragging .table.free .top { border-style: dashed; }

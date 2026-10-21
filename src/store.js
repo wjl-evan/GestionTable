@@ -5,7 +5,8 @@ import { createSeed } from './seed.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DB_PATH = process.env.DB_PATH || path.join(root, 'data', 'db.json');
-const BACKUP_DIR = path.join(path.dirname(DB_PATH), 'backups');
+export const DATA_DIR = path.dirname(DB_PATH);
+export const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP_DAYS = 30;
 const BACKUP_EVERY_MS = 5 * 60 * 1000; // après une modification, la sauvegarde du jour a au plus 5 min de retard
 
@@ -124,6 +125,14 @@ export function persist() {
       }
     });
   return queue;
+}
+
+/** Écrit un fichier JSON de façon atomique (fichier temporaire puis renommage). */
+export async function writeJsonAtomic(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2));
+  await fs.rename(tmp, file);
 }
 
 export function httpError(status, message) {

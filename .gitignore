@@ -3,4 +3,5 @@ data/db.json
 data/*.tmp
 .env
 data/backups/
+data/archives/
 data/*.corrompu-*

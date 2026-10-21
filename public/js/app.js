@@ -242,7 +242,7 @@ function renderStats() {
   const sum = (rs) => rs.reduce((s, r) => s + r.people, 0);
   const arrived = sum(list.filter((r) => statusOf(r) === 'arrived'));
   const left = sum(list.filter((r) => statusOf(r) === 'left'));
-  const todo = list.filter((r) => !r.tableIds.length && isActive(r)).length;
+  const todo = list.filter((r) => !r.tableIds.length && isActive(r) && !r.archived).length;
   $('#autoAssign').disabled = todo === 0;
   $('#navTodo').hidden = !todo || state.editMode;
   $('#navTodo').textContent = todo;
@@ -280,7 +280,7 @@ const ICONS = {
 function tablesPill(r, status) {
   const capacity = cap(r.tableIds);
   const tight = status !== 'left' && r.people > capacity;
-  const cls = status === 'left' ? '' : tight ? 'ok tight' : 'ok';
+  const cls = status === 'left' ? '' : tight ? 'ok tight' : status === 'expected' ? 'ok resv' : 'ok';
   const title = tight ? `${capacity} places pour ${r.people} personnes — on se serre` : `Tables : ${tableNames(r)}`;
   return `<span class="pill ${cls}" title="${esc(title)}">${esc(tableNames(r))}${tight ? ' · serré' : ''}</span>`;
 }
@@ -340,7 +340,7 @@ function cardHtml(r) {
       <div class="rc-head rc-compact">
         <span class="rc-name">${highlight(r.name, state.search)}</span>
         <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
-        <button type="button" class="rc-btn" data-action="restore" title="Erreur ou client revenu : la réservation reprend ses tables si elles sont libres">${ICONS.undo}<span>Rétablir</span></button>
+        ${r.archived ? '' : `<button type="button" class="rc-btn" data-action="restore" title="Erreur ou client revenu : la réservation reprend ses tables si elles sont libres">${ICONS.undo}<span>Rétablir</span></button>`}
         <span class="rc-sub">${statusTag}${placed ? `<span class="rc-was">${esc(tableNames(r))}</span>` : ''}</span>
       </div>`;
   }
@@ -364,7 +364,7 @@ function cardHtml(r) {
           ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>`
           : ''
     }
-    ${cardActionsHtml(r, status, placed)}`;
+    ${r.archived ? '' : cardActionsHtml(r, status, placed)}`;
 }
 
 async function saveInternalNote(r, text) {
@@ -400,6 +400,12 @@ function renderList() {
     });
     return;
   }
+  if (all.some((r) => r.archived)) {
+    const note = document.createElement('li');
+    note.className = 'archived-note';
+    note.textContent = 'Service archivé : consultation seule. Les noms et téléphones sont effacés au bout de la durée de conservation (réglable dans « Modifier le plan »).';
+    els.resList.append(note);
+  }
   if (state.search) {
     const count = document.createElement('li');
     count.className = 'list-count';
@@ -425,7 +431,7 @@ function buildCard(r) {
   const editing = state.noteEditing === r.id;
   const li = document.createElement('li');
   li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
-  li.draggable = status !== 'left' && !editing; // pas de glisser pendant la saisie de la note
+  li.draggable = status !== 'left' && !editing && !r.archived; // pas de glisser pendant la saisie de la note
   li.dataset.id = r.id;
   li.innerHTML = cardHtml(r);
 
@@ -433,7 +439,7 @@ function buildCard(r) {
   li.addEventListener('dragend', endDrag);
   // Au doigt : appui long puis glisser vers une table
   li.addEventListener('pointerdown', (e) => {
-    if (status !== 'left' && !editing && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
+    if (status !== 'left' && !editing && !r.archived && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
   });
   li.addEventListener('click', (e) => {
     if (e.target.closest('a, textarea')) return; // lien téléphone, saisie de la note
@@ -459,7 +465,7 @@ function buildCard(r) {
     onCardTap(r);
   });
   li.addEventListener('dblclick', (e) => {
-    if (!e.target.closest('button, a, .rc-note-editor')) openDialog(r);
+    if (!r.archived && !e.target.closest('button, a, .rc-note-editor')) openDialog(r);
   });
   return li;
 }
@@ -469,6 +475,11 @@ function buildCard(r) {
  * Sur téléphone, le plan s'ouvre pour choisir la table, puis on revient à la liste.
  */
 function onCardTap(r) {
+  if (r.archived) {
+    // Archivée : on la sélectionne seulement (sa table s'allume), sans rien pouvoir déplacer
+    state.selectedRes = state.selectedRes === r.id ? null : r.id;
+    return render();
+  }
   const cancelling = state.placing === r.id || (!isActive(r) && state.selectedRes === r.id);
   state.selectedRes = cancelling ? null : r.id;
   state.placing = !cancelling && isActive(r) ? r.id : null;
@@ -476,6 +487,33 @@ function onCardTap(r) {
   closeSheet();
   if (state.placing && isPhone()) setView('plan');
   render();
+  // Déjà placée : on amène sa table à l'écran (après le recadrage du plan, d'où le double rAF)
+  if (!cancelling && r.tableIds.length && isActive(r)) {
+    requestAnimationFrame(() => requestAnimationFrame(() => revealTables(r.tableIds)));
+  }
+}
+
+/** Fait défiler le plan (sans changer le zoom) pour que ces tables soient bien visibles. */
+function revealTables(ids) {
+  const ts = ids.map(tableById).filter(Boolean);
+  const wrap = els.planWrap;
+  if (!ts.length || !wrap.clientWidth) return;
+  const b = boxOf(ts);
+  const { scale: s, offset: o } = state;
+  const left = o.x + b.x * s;
+  const top = o.y + b.y * s;
+  const right = left + b.w * s;
+  const bottom = top + b.h * s;
+  const m = 48; // marge : le halo et les chaises doivent être visibles aussi
+  const fullyVisible =
+    left >= wrap.scrollLeft + m && right <= wrap.scrollLeft + wrap.clientWidth - m &&
+    top >= wrap.scrollTop + m && bottom <= wrap.scrollTop + wrap.clientHeight - m;
+  if (fullyVisible) return;
+  wrap.scrollTo({
+    left: (left + right) / 2 - wrap.clientWidth / 2,
+    top: (top + bottom) / 2 - wrap.clientHeight / 2,
+    behavior: 'smooth',
+  });
 }
 
 /** Puces de filtre avec le nombre de réservations de chaque catégorie. */
@@ -729,6 +767,59 @@ function multiHtml() {
     ${selectionGroupHtml(tableIds)}`;
 }
 
+/* ---------- Conservation des données clients (réglages) ---------- */
+
+let retentionCache = null;
+
+const frDate = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
+
+/** Remplit le formulaire « Données des clients » (depuis le cache, ou en le chargeant). */
+async function fillRetentionForm(refresh = false) {
+  const form = $('#retentionForm', els.inspector);
+  if (!form) return;
+  try {
+    if (refresh || !retentionCache) retentionCache = await api.settings();
+  } catch (err) {
+    $('#retentionInfo', form).textContent = err.message;
+    return;
+  }
+  const s = retentionCache;
+  if (document.activeElement?.form !== form) {
+    form.archiveAfterDays.value = s.archiveAfterDays;
+    form.anonymizeAfterMonths.value = s.anonymizeAfterMonths;
+  }
+  const archived = s.archives.reduce((n, a) => n + a.count, 0);
+  const years = s.archives.map((a) => `${a.year} : ${a.count}`).join(', ');
+  $('#retentionInfo', form).textContent =
+    `Les services de plus de ${s.archiveAfterDays} jours sont archivés (consultables, non modifiables). ` +
+    `Au-delà de ${s.anonymizeAfterMonths} mois, nom, téléphone et notes sont effacés ; ` +
+    `dates et couverts restent pour les statistiques. — Base : ${s.activeReservations} réservation(s) ; ` +
+    `archives : ${archived}${years ? ` (${years})` : ''} ; dernier passage : ${frDate(s.lastRetention)}.`;
+}
+
+function bindRetentionForm() {
+  const form = $('#retentionForm', els.inspector);
+  fillRetentionForm();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const data = await api.updateSettings({
+        archiveAfterDays: Number(form.archiveAfterDays.value),
+        anonymizeAfterMonths: Number(form.anonymizeAfterMonths.value),
+      });
+      retentionCache = data;
+      const { archived, anonymized } = data.result;
+      toast(`Durées enregistrées — ${archived} réservation(s) archivée(s), ${anonymized} anonymisée(s)`, 'success');
+      document.activeElement?.blur();
+      fillRetentionForm();
+      await loadReservations();
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
 function renderInspector() {
   const t = state.selected?.kind === 'table' ? tableById(state.selected.id) : null;
   const z = state.selected?.kind === 'zone' ? zoneById(state.selected.id) : null;
@@ -765,6 +856,18 @@ function renderInspector() {
 
       <button class="btn danger ghost small clear-plan" id="clearPlan">Repartir d'un plan vierge</button>
 
+      <div class="section-label">Données des clients</div>
+      <form class="item-form" id="retentionForm" novalidate>
+        <div class="row">
+          <label class="field"><span>Archiver après</span>
+            <span class="unit-input"><input name="archiveAfterDays" type="number" min="14" max="365" inputmode="numeric" /><em>jours</em></span></label>
+          <label class="field"><span>Effacer nom et tél. après</span>
+            <span class="unit-input"><input name="anonymizeAfterMonths" type="number" min="1" max="36" inputmode="numeric" /><em>mois</em></span></label>
+        </div>
+        <button type="submit" class="btn ghost small">Enregistrer</button>
+        <p class="muted small-note" id="retentionInfo">Chargement…</p>
+      </form>
+
       <div class="section-label">Code d'accès</div>
       <form class="item-form" id="pinForm" novalidate>
         <div class="row">
@@ -775,6 +878,8 @@ function renderInspector() {
         <p class="muted small-note">4 à 8 chiffres. Les autres appareils devront saisir le nouveau code.</p>
       </form>
     </div>`;
+
+  bindRetentionForm();
 
   $('#pinForm', els.inspector).addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -907,13 +1012,34 @@ function renderPlan() {
 
 const center = (t) => ({ x: t.x + t.w / 2, y: t.y + t.h / 2 });
 
-/** Regroupe les tables qui se touchent (pour dessiner un seul fond par bloc). */
-function adjacentClusters(ts) {
+/** Même ligne (ou même colonne) : les tables se chevauchent au moins de moitié sur l'autre axe. */
+function aligned(a, b) {
+  const overlap = (a1, a2, b1, b2) => Math.min(a2, b2) - Math.max(a1, b1);
+  return (
+    overlap(a.y, a.y + a.h, b.y, b.y + b.h) >= Math.min(a.h, b.h) / 2 ||
+    overlap(a.x, a.x + a.w, b.x, b.x + b.w) >= Math.min(a.w, b.w) / 2
+  );
+}
+
+const intersects = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * Regroupe les tables d'une fusion en blocs (un seul fond par bloc) : tables qui se touchent,
+ * ou alignées sur la même ligne / colonne même si elles sont espacées — tant que le bloc
+ * ne recouvre pas une autre table.
+ */
+function mergeClusters(ts) {
+  const others = state.tables.filter((t) => !ts.includes(t));
+  const free = (c) => !others.some((o) => intersects(o, boxOf(c)));
   const clusters = [];
   for (const t of ts) {
-    const touching = clusters.filter((c) => c.some((o) => areAdjacent(o, t)));
-    const merged = [t, ...touching.flat()];
-    for (const c of touching) clusters.splice(clusters.indexOf(c), 1);
+    const joining = clusters.filter((c) => c.some((o) => areAdjacent(o, t) || (aligned(o, t) && free([o, t]))));
+    const merged = [t, ...joining.flat()];
+    if (joining.length && !free(merged)) {
+      clusters.push([t]);
+      continue;
+    }
+    for (const c of joining) clusters.splice(clusters.indexOf(c), 1);
     clusters.push(merged);
   }
   return clusters;
@@ -936,7 +1062,7 @@ const boxStyle = (b) => ({ left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`,
 function renderMergedGroup(r) {
   const { plan } = els;
   const ts = r.tableIds.map(tableById).filter(Boolean);
-  const clusters = adjacentClusters(ts);
+  const clusters = mergeClusters(ts);
   const selected = state.selectedRes === r.id ? ' selected' : '';
 
   // Blocs éloignés : reliés par le chemin le plus court
@@ -964,7 +1090,7 @@ function renderMergedGroup(r) {
     return b.w * b.h > bb.w * bb.h ? c : big;
   }));
   const label = document.createElement('div');
-  label.className = 'merge-label';
+  label.className = `merge-label ${statusOf(r)}`;
   Object.assign(label.style, boxStyle(main));
   label.innerHTML = `<span class="t-guest">${esc(r.name)}</span>
     <span class="t-meta">${tableMeta(r, cap(r.tableIds))}</span>`;
@@ -1029,6 +1155,32 @@ const tableMeta = (res, seats) => {
   return statusOf(res) === 'arrived' ? `✓ ${count} · ${hhmm(res.arrivedAt)}` : `${count} · ${esc(res.time)}`;
 };
 
+/**
+ * Chaises occupées par la réservation `res` sur la table `t` (indices dans chairPositions).
+ * Tables fusionnées : on remplit table après table, dans l'ordre de la fusion.
+ * Placement naturel : les convives se font face (côtés alternés) ; autour d'une table ronde,
+ * ils sont répartis régulièrement.
+ */
+function takenChairs(t, res) {
+  let before = 0;
+  for (const id of res.tableIds) {
+    if (id === t.id) break;
+    before += tableById(id)?.seats ?? 0;
+  }
+  const n = t.seats;
+  const k = Math.max(0, Math.min(n, res.people - before));
+  if (k >= n) return new Set([...Array(n).keys()]);
+  if (t.shape === 'round') return new Set([...Array(k).keys()].map((i) => Math.floor((i * n) / k)));
+  // Rectangle : chairPositions donne d'abord un côté (a chaises) puis l'autre ; on alterne les côtés
+  const a = Math.ceil(n / 2);
+  const order = [];
+  for (let i = 0; i < a; i++) {
+    order.push(i);
+    if (a + i < n) order.push(a + i);
+  }
+  return new Set(order.slice(0, k));
+}
+
 function tableElement(t, res) {
   const grouped = res && res.tableIds.length > 1;
   const el = document.createElement('div');
@@ -1039,14 +1191,15 @@ function tableElement(t, res) {
   el.dataset.id = t.id;
   Object.assign(el.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.w}px`, height: `${t.h}px` });
 
-  for (const c of chairPositions(t)) {
+  const taken = res ? takenChairs(t, res) : new Set();
+  chairPositions(t).forEach((c, i) => {
     const chair = document.createElement('span');
-    chair.className = 'chair';
+    chair.className = taken.has(i) ? 'chair taken' : 'chair';
     chair.style.left = `${c.x}px`;
     chair.style.top = `${c.y}px`;
     chair.style.transform = `translate(-50%, -50%) rotate(${c.rot}deg)`;
     el.append(chair);
-  }
+  });
 
   const top = document.createElement('div');
   top.className = 'top';
@@ -1068,7 +1221,7 @@ function tableElement(t, res) {
   }
 
   // Une table occupée se déplace en glissant la réservation
-  if (res) {
+  if (res && !res.archived) {
     el.draggable = true;
     el.addEventListener('dragstart', (e) => startDrag(e, res.id));
     el.addEventListener('dragend', endDrag);
@@ -1101,7 +1254,7 @@ function tableElement(t, res) {
     const card = res && els.resList.querySelector(`.res-card[data-id="${res.id}"]`);
     if (card) scrollListTo(card, 'center');
   });
-  el.addEventListener('dblclick', () => res && openDialog(res));
+  el.addEventListener('dblclick', () => res && !res.archived && openDialog(res));
   return el;
 }
 
@@ -1985,7 +2138,7 @@ function renderSheet() {
     list.append(buildCard(res));
     sheet.append(list);
   } else {
-    const todo = activeReservations().filter((r) => !r.tableIds.length);
+    const todo = activeReservations().filter((r) => !r.tableIds.length && !r.archived);
     sheet.insertAdjacentHTML(
       'beforeend',
       todo.length
@@ -2316,6 +2469,7 @@ els.resList.addEventListener('scroll', () => {
 
 $('#editToggle').addEventListener('click', () => {
   state.editMode = !state.editMode;
+  retentionCache = null; // chiffres à jour à chaque ouverture des réglages
   state.selected = null;
   state.linking = null;
   state.selectedRes = null;
@@ -2573,7 +2727,10 @@ async function flushRefresh() {
   const scope = refreshPending;
   refreshPending = null;
   try {
-    if (scope === 'all') await loadPlan();
+    if (scope === 'all') {
+      await loadPlan();
+      retentionCache = null;
+    }
     await loadReservations();
     // Ce qui a été supprimé ailleurs ne reste pas sélectionné ici
     if (state.selectedRes && !resById(state.selectedRes)) state.selectedRes = null;

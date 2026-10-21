@@ -34,6 +34,13 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   5 minutes après un changement. Si `db.json` est abîmé, il est mis de côté et le serveur repart de la dernière
   sauvegarde. Pour restaurer à la main : arrêter le serveur, copier `data/backups/db-AAAA-MM-JJ.json` vers
   `data/db.json`, relancer. Conseillé : copier aussi régulièrement `data/backups/` sur une clé USB ou un cloud.
+- **Conservation des données clients** (réglable dans « Modifier le plan » → *Données des clients*) :
+  - après **60 jours** (14 à 365), les services passés quittent `db.json` pour `data/archives/reservations-AAAA.json`
+    (copie dans `data/backups/archives/`). `db.json` reste donc petit et rapide. Les services archivés restent
+    consultables en choisissant leur date, mais ne sont plus modifiables ;
+  - après **12 mois** (1 à 36), nom, téléphone, demande du client et note interne sont effacés définitivement
+    (« Client anonymisé ») ; date, heure, couverts et tables sont gardés pour les statistiques ;
+  - passage automatique au démarrage puis une fois par jour, et tout de suite après un changement de réglage.
 
 ## Fonctionnalités
 
@@ -103,23 +110,25 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 ├── server.js                 # Point d'entrée Express (affiche les adresses pour les tablettes)
 ├── demarrer.bat              # Lancement au restaurant (Windows), avec relance automatique
 ├── shared/rules.js           # Règles partagées client/serveur (voisinage, fusion, services)
-├── tests/rules.test.js       # Tests automatiques (npm test)
+├── tests/                    # Tests automatiques (npm test)
 ├── src/
 │   ├── store.js              # Persistance JSON (data/db.json) + sauvegardes (data/backups)
 │   ├── auth.js               # Code d'accès de l'équipe, sessions
 │   ├── events.js             # Synchronisation en direct entre appareils
+│   ├── retention.js          # Archivage et anonymisation des anciennes réservations
 │   ├── seed.js               # Données de démonstration
 │   └── routes/
 │       ├── plan.js           # GET /api/plan
 │       ├── tables.js         # CRUD /api/tables
-│       └── reservations.js   # CRUD /api/reservations + assign / unassign
+│       ├── reservations.js   # CRUD /api/reservations + assign / unassign
+│       └── settings.js       # Durées de conservation des données clients
 ├── public/
 │   ├── index.html
 │   ├── css/style.css
 │   └── js/
 │       ├── api.js            # Client HTTP
 │       └── app.js            # Interface (liste, plan, glisser-déposer, édition)
-└── data/                     # Base JSON + sauvegardes (ignorées par git)
+└── data/                     # Base JSON, archives, sauvegardes (ignorées par git)
 ```
 
 Toute l'API (sauf `/api/auth/*`) exige une session ouverte avec le code d'accès. `GET /api/events` diffuse les
@@ -136,9 +145,10 @@ changements aux appareils connectés.
 | POST | `/api/plan/groups` | `{ tableIds, capacity }` — crée une fusion (ou met à jour sa capacité) |
 | PUT / DELETE | `/api/plan/groups/:id` | Modifie la capacité / supprime la fusion |
 | POST / PUT / DELETE | `/api/tables[/:id]` | Gestion des tables |
-| GET | `/api/reservations?date=YYYY-MM-DD` | Réservations du jour |
+| GET | `/api/reservations?date=YYYY-MM-DD` | Réservations du jour (y compris archivées, marquées `archived`) |
 | POST / PUT / DELETE | `/api/reservations[/:id]` | Gestion des réservations |
 | POST | `/api/reservations/:id/assign` | `{ tableId }` — place la réservation (fusion auto si besoin) |
 | POST | `/api/reservations/:id/assign-manual` | `{ tableIds }` — place sur des tables choisies (pour ce service, même si trop petites) |
 | POST | `/api/reservations/:id/unassign` | Retire la réservation du plan |
 | POST | `/api/reservations/:id/status` | `{ status: 'expected' \| 'arrived' \| 'left' }` — arrivée / départ |
+| GET / PUT | `/api/settings` | `{ archiveAfterDays, anonymizeAfterMonths }` — conservation des données, appliquée aussitôt |

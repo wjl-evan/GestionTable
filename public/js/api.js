@@ -53,6 +53,8 @@ export const api = {
   assignManual: (id, tableIds) => request('POST', `/api/reservations/${id}/assign-manual`, { tableIds }),
   assign: (id, tableId) => request('POST', `/api/reservations/${id}/assign`, { tableId }),
   setStatus: (id, status) => request('POST', `/api/reservations/${id}/status`, { status }),
+  settings: () => request('GET', '/api/settings'),
+  updateSettings: (data) => request('PUT', '/api/settings', data),
   autoAssign: (date, service) => request('POST', '/api/reservations/auto-assign', { date, service }),
   unassign: (id) => request('POST', `/api/reservations/${id}/unassign`),
 
