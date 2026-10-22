@@ -679,6 +679,8 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
 /* Chaises occupées par les clients de la réservation (pas toute la table) */
 .table.busy .chair.taken { background: var(--accent); }
 .table.busy.expected .chair.taken { background: var(--resv); }
+/* Chaise ajoutée (plus de personnes que de chaises, on se serre) : liseré orange comme « serré » */
+.chair.extra { box-shadow: 0 0 0 1.5px var(--floor), 0 0 0 3px var(--warn); }
 
 .t-name { font-weight: 600; font-size: 14px; }
 .t-seats { font-size: 11.5px; color: var(--muted); }
@@ -1171,3 +1173,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .filter-chips.grabbing, .time-strip.grabbing { cursor: grabbing; user-select: none; }
   .filter-chips.grabbing button, .time-strip.grabbing button { cursor: grabbing; }
 }
+/* Chaises d'une rangée de tables réunies (dessinées pour tout le bloc) */
+.plan-chair { z-index: 2; background: var(--accent); }
+.plan-chair.expected { background: var(--resv); }
+body.spotlight .plan-chair:not(.selected) { opacity: .28; }

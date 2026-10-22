@@ -1144,6 +1144,7 @@ function chairSelectHtml(value, attrs = '') {
   </label>`;
 }
 
+const chairLayouts = new Map(); // disposition des chaises par réservation, pour ce dessin du plan
 let lastSpot = null; // réservation mise en évidence au dernier rendu
 let pulseNow = false;
 
@@ -1166,6 +1167,7 @@ function renderPlan() {
   renderLinks();
 
   const occ = occupancy();
+  chairLayouts.clear();
 
   // Projecteur : la réservation sélectionnée a une table sur le plan → les autres tables s'effacent.
   // (Pas pendant un placement ou un regroupement : ces modes ont leur propre mise en évidence.)
@@ -1263,6 +1265,14 @@ function renderMergedGroup(r) {
       .map(([a, b]) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`)
       .join('');
     plan.append(svg);
+  }
+
+  // Chaises de la rangée (plus de personnes que de chaises) : réparties sur tout le bloc
+  for (const c of layoutOf(r).rows) {
+    const chair = document.createElement('span');
+    chair.className = `chair plan-chair taken ${statusOf(r)}${c.extra ? ' extra' : ''}${selected}`;
+    Object.assign(chair.style, { left: `${c.x}px`, top: `${c.y}px`, transform: `translate(-50%, -50%) rotate(${c.rot}deg)` });
+    plan.append(chair);
   }
 
   for (const c of clusters) {
@@ -1372,6 +1382,199 @@ function takenChairs(t, res) {
   return new Set(order.slice(0, k));
 }
 
+/* ---------- Plus de personnes que de chaises : chaises ajoutées ---------- */
+
+const CHAIR_ROOM = 26; // place d'une chaise le long d'un côté (22 px + un peu d'air)
+const CHAIR_OFF = 10; // distance chaise ↔ bord de la table
+
+/** Bande où irait une chaise, le long d'un côté d'un rectangle (table ou bloc de tables). */
+function chairStrip(b, side, depth) {
+  if (side === 'top') return { x: b.x, y: b.y - depth, w: b.w, h: depth };
+  if (side === 'bottom') return { x: b.x, y: b.y + b.h, w: b.w, h: depth };
+  if (side === 'left') return { x: b.x - depth, y: b.y, w: depth, h: b.h };
+  return { x: b.x + b.w, y: b.y, w: depth, h: b.h };
+}
+
+/**
+ * Côté impossible pour une chaise : mur, bar, cuisine… (pas une simple « Zone » de sol),
+ * une autre table juste à côté, ou une table de la même réservation (`own`) un peu plus loin :
+ * pas de chaise coincée entre deux tables réunies.
+ */
+function chairSideBlocked(b, side, own) {
+  if (state.zones.some((z) => z.type !== 'area' && intersects(chairStrip(b, side, 20), z))) return true;
+  return state.tables.some((o) => o !== b && !(b.id === undefined && own.includes(o)) &&
+    intersects(chairStrip(b, side, own.includes(o) ? 40 : 20), o));
+}
+
+/**
+ * Tables réunies en rangée (fusion) : comme une seule grande table.
+ * Les chaises (prévues + ajoutées) sont réparties sur toute la longueur du bloc, espaces compris,
+ * en deux rangées face à face ; si les rangées sont pleines, on utilise les bouts du bloc.
+ * Renvoie les chaises en coordonnées du plan, ou null si le bloc n'est pas une rangée simple.
+ */
+function rowChairs(cluster, extra) {
+  if (cluster.length < 2 || cluster.some((t) => t.shape === 'round')) return null;
+  const box = boxOf(cluster);
+  const overlap = (a1, a2, b1, b2) => Math.min(a2, b2) - Math.max(a1, b1);
+  const [first] = cluster;
+  const horizontal = cluster.every((t) => overlap(t.y, t.y + t.h, first.y, first.y + first.h) >= Math.max(t.h, first.h) * 0.8);
+  const vertical = !horizontal && cluster.every((t) => overlap(t.x, t.x + t.w, first.x, first.x + first.w) >= Math.max(t.w, first.w) * 0.8);
+  if (!horizontal && !vertical) return null;
+
+  // Côtés longs qui ont des chaises sur toutes les tables du bloc
+  const rows = (horizontal ? ['top', 'bottom'] : ['left', 'right']).filter((side) => cluster.every((t) => chairSides(t).includes(side)));
+  if (!rows.length) return null;
+  // Bouts du bloc (box n'a pas d'id : ses propres tables ne le bloquent pas)
+  const ends = (horizontal ? ['left', 'right'] : ['top', 'bottom']).filter((side) => !chairSideBlocked(box, side, cluster));
+
+  const total = cluster.reduce((sum, t) => sum + t.seats, 0) + extra;
+  const rowCap = Math.max(1, Math.floor((horizontal ? box.w : box.h) / CHAIR_ROOM));
+  const endCap = Math.max(1, Math.floor((horizontal ? box.h : box.w) / CHAIR_ROOM));
+  const counts = {};
+  rows.forEach((side, i) => (counts[side] = rows.length === 1 ? total : i === 0 ? Math.ceil(total / 2) : Math.floor(total / 2)));
+  // Rangées trop pleines : le surplus va aux bouts ; s'il n'y a plus de place, on serre dans les rangées
+  let over = 0;
+  for (const side of rows) {
+    if (counts[side] > rowCap) {
+      over += counts[side] - rowCap;
+      counts[side] = rowCap;
+    }
+  }
+  for (let i = 0; over > 0 && ends.some((e) => (counts[e] ?? 0) < endCap); i++) {
+    const side = ends[i % ends.length];
+    if ((counts[side] ?? 0) < endCap) {
+      counts[side] = (counts[side] ?? 0) + 1;
+      over--;
+    }
+  }
+  for (let i = 0; over > 0; i++, over--) counts[rows[i % rows.length]]++;
+
+  // Une chaise face à un espace entre deux tables, ou en bout de bloc, est une chaise ajoutée
+  const overTable = (c) => cluster.some((t) => (horizontal ? c.x >= t.x && c.x <= t.x + t.w : c.y >= t.y && c.y <= t.y + t.h));
+  const out = [];
+  for (const [side, k] of Object.entries(counts)) {
+    const len = side === 'top' || side === 'bottom' ? box.w : box.h;
+    for (let i = 0; i < k; i++) {
+      const p = (len * (i + 1)) / (k + 1);
+      const c = side === 'top' ? { x: box.x + p, y: box.y - CHAIR_OFF, rot: 0 }
+        : side === 'bottom' ? { x: box.x + p, y: box.y + box.h + CHAIR_OFF, rot: 0 }
+        : side === 'left' ? { x: box.x - CHAIR_OFF, y: box.y + p, rot: 90 }
+        : { x: box.x + box.w + CHAIR_OFF, y: box.y + p, rot: 90 };
+      out.push({ ...c, extra: !rows.includes(side) || !overTable(c) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Où mettre les chaises d'une réservation qui a plus de personnes que de chaises :
+ * - `rows` : chaises dessinées sur le plan pour les blocs de tables en rangée (`skip` : leurs tables) ;
+ * - `perTable` : chaises ajoutées table par table pour le reste (voir extraChairsFor).
+ * Les chaises en plus sont partagées entre les blocs de la réservation, à tour de rôle.
+ */
+function chairLayout(res) {
+  const tables = res.tableIds.map(tableById).filter(Boolean);
+  const layout = { rows: [], skip: new Set(), perTable: new Map() };
+  let extra = res.people - tables.reduce((s, t) => s + t.seats, 0);
+  if (extra <= 0 || !tables.length) return layout;
+  const shares = mergeClusters(tables)
+    .map((c) => ({ c, extra: 0, seats: c.reduce((s, t) => s + t.seats, 0) }))
+    .sort((a, b) => b.seats - a.seats);
+  for (let i = 0; extra > 0; i++, extra--) shares[i % shares.length].extra++;
+  for (const { c, extra: e } of shares) {
+    if (!e) continue;
+    const row = rowChairs(c, e);
+    if (row) {
+      layout.rows.push(...row);
+      c.forEach((t) => layout.skip.add(t.id));
+    } else {
+      for (const [id, entry] of extraChairsFor(c, e, tables)) layout.perTable.set(id, entry);
+    }
+  }
+  return layout;
+}
+
+// Calculé une fois par réservation à chaque dessin du plan (cache vidé par renderPlan)
+const layoutOf = (res) => {
+  if (!chairLayouts.has(res.id)) chairLayouts.set(res.id, chairLayout(res));
+  return chairLayouts.get(res.id);
+};
+
+/**
+ * Chaises ajoutées table par table (table seule, ronde, ou bloc qui n'est pas une rangée) :
+ * table id → { sides: { top: 1, … } } pour une table rectangulaire, ou { ring: n } pour une ronde.
+ * Elles vont d'abord sur les côtés libres (souvent les bouts de table), jamais sur un mur
+ * ni entre deux tables réunies, à tour de rôle sur les tables.
+ */
+function extraChairsFor(tables, extra, own) {
+  const out = new Map();
+  const blocked = (t, side) => chairSideBlocked(t, side, own);
+  const room = (t, side) => Math.max(1, Math.floor((side === 'top' || side === 'bottom' ? t.w : t.h) / CHAIR_ROOM));
+  const baseCount = (t, side) => {
+    const sides = chairSides(t);
+    if (!sides.includes(side)) return 0;
+    return sides.length === 1 ? t.seats : side === sides[0] ? Math.ceil(t.seats / 2) : Math.floor(t.seats / 2);
+  };
+
+  // D'abord les côtés libres (bouts de table), puis, s'ils sont pleins, les côtés qui ont déjà des chaises
+  const free = [];
+  const used = [];
+  for (const t of tables) {
+    if (t.shape === 'round') free.push({ t, ring: true, left: Infinity });
+    else {
+      for (const side of ['left', 'right', 'top', 'bottom']) {
+        if (blocked(t, side)) continue;
+        const has = baseCount(t, side);
+        (has ? used : free).push({ t, side, left: room(t, side) - has });
+      }
+    }
+  }
+  const place = (slot) => {
+    const entry = out.get(slot.t.id) ?? (slot.ring ? { ring: 0 } : { sides: {} });
+    if (slot.ring) entry.ring++;
+    else entry.sides[slot.side] = (entry.sides[slot.side] ?? 0) + 1;
+    out.set(slot.t.id, entry);
+    slot.left--;
+    extra--;
+  };
+  // À tour de rôle sur les côtés qui ont encore de la place
+  for (const group of [free, used]) {
+    while (extra > 0 && group.some((sl) => sl.left > 0)) {
+      for (const slot of group) if (extra > 0 && slot.left > 0) place(slot);
+    }
+  }
+  // Vraiment plus de place : on serre quand même, sur le premier côté disponible
+  const last = free[0] ?? used[0] ?? (tables[0] && { t: tables[0], side: chairSides(tables[0])[0] ?? 'top', left: 0 });
+  while (extra > 0 && last) place(last);
+  return out;
+}
+
+/**
+ * Chaises d'une table qui a des chaises ajoutées : chaque côté concerné est réparti à nouveau
+ * (prévues + ajoutées, toutes occupées) ; les ajoutées sont en bout de rangée, marquées `extra`.
+ */
+function chairsWithExtra(t, entry) {
+  const off = 10;
+  const sides = chairSides(t);
+  const counts = {};
+  sides.forEach((side, i) => (counts[side] = sides.length === 1 ? t.seats : i === 0 ? Math.ceil(t.seats / 2) : Math.floor(t.seats / 2)));
+  const out = [];
+  for (const side of ['top', 'bottom', 'left', 'right']) {
+    const base = counts[side] ?? 0;
+    const k = base + (entry.sides[side] ?? 0);
+    const len = side === 'top' || side === 'bottom' ? t.w : t.h;
+    for (let i = 0; i < k; i++) {
+      const p = (len * (i + 1)) / (k + 1);
+      const c = side === 'top' ? { x: p, y: -off, rot: 0 }
+        : side === 'bottom' ? { x: p, y: t.h + off, rot: 0 }
+        : side === 'left' ? { x: -off, y: p, rot: 90 }
+        : { x: t.w + off, y: p, rot: 90 };
+      out.push({ ...c, extra: i >= base });
+    }
+  }
+  return out;
+}
+
 function tableElement(t, res) {
   const grouped = res && res.tableIds.length > 1;
   const el = document.createElement('div');
@@ -1382,15 +1585,30 @@ function tableElement(t, res) {
   el.dataset.id = t.id;
   Object.assign(el.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.w}px`, height: `${t.h}px` });
 
-  const taken = res ? takenChairs(t, res) : new Set();
-  chairPositions(t).forEach((c, i) => {
+  // Plus de personnes que de chaises : on ajoute les chaises qui manquent (style « ajoutée »).
+  // Tables réunies en rangée : leurs chaises sont dessinées pour tout le bloc (voir rowChairs).
+  const layout = res ? layoutOf(res) : null;
+  const inRow = layout?.skip.has(t.id);
+  const extra = layout?.perTable.get(t.id) ?? null;
+  const ring = extra?.ring ?? 0;
+  const addChair = (c, cls) => {
     const chair = document.createElement('span');
-    chair.className = taken.has(i) ? 'chair taken' : 'chair';
+    chair.className = cls;
     chair.style.left = `${c.x}px`;
     chair.style.top = `${c.y}px`;
     chair.style.transform = `translate(-50%, -50%) rotate(${c.rot}deg)`;
     el.append(chair);
-  });
+  };
+  if (inRow) {
+    // rien ici : chaises du bloc, dessinées avec la fusion
+  } else if (extra && !ring) {
+    chairsWithExtra(t, extra).forEach((c) => addChair(c, c.extra ? 'chair taken extra' : 'chair taken'));
+  } else {
+    // Table ronde : toutes les chaises (prévues + ajoutées) sont réparties à nouveau autour ; les dernières sont les ajoutées
+    const all = chairPositions(ring ? { ...t, seats: t.seats + ring } : t);
+    const taken = ring ? new Set(all.keys()) : res ? takenChairs(t, res) : new Set();
+    all.forEach((c, i) => addChair(c, taken.has(i) ? `chair taken${i >= t.seats ? ' extra' : ''}` : 'chair'));
+  }
 
   const top = document.createElement('div');
   top.className = 'top';
