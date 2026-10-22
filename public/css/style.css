@@ -268,25 +268,27 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .res-card.status-arrived.placed.selected, .res-card.status-left.selected { opacity: 1; }
 .res-card.status-left .rc-name { text-decoration: line-through; text-decoration-color: var(--muted); }
 
-/* Ligne 1 : nom · personnes · table (le plus visible) ; ligne 2 : heure, statut, téléphone (discret) */
+/* Deux lignes. Ligne 1 : nom · personnes · action principale ; ligne 2 : statut, table, notes */
 .rc-head {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-areas: 'name people tables' 'sub sub sub';
-  align-items: center; column-gap: 10px; row-gap: 4px;
+  grid-template-areas: 'name people main' 'sub sub sub';
+  align-items: center; column-gap: 10px; row-gap: 6px;
 }
-.rc-name { grid-area: name; font-size: 16px; font-weight: 650; line-height: 22px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.rc-main { grid-area: main; display: flex; justify-content: flex-end; min-width: 88px; }
+.rc-main .rc-btn { height: 30px; }
+.rc-name { grid-area: name; font-size: 16px; font-weight: 650; line-height: 22px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rc-people {
   grid-area: people; display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap;
   font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;
 }
 .rc-people small { font-size: 11.5px; font-weight: 500; color: var(--muted); }
-.rc-tables { grid-area: tables; display: flex; justify-content: flex-end; max-width: 140px; }
-.rc-tables .pill { white-space: normal; text-align: right; line-height: 1.3; }
+.rc-tables { display: flex; min-width: 0; }
+.rc-tables .pill { overflow: hidden; text-overflow: ellipsis; }
 /* Ligne de statut : hauteur fixe et sans retour à la ligne, pour que la carte garde
    la même taille quel que soit l'état (attendu, arrivé + bouton ↶, parti) */
 .rc-sub {
   grid-area: sub; display: flex; flex-wrap: nowrap; align-items: center; gap: 12px;
-  height: 20px; min-width: 0; font-size: 12.5px; color: var(--muted);
+  height: 24px; min-width: 0; font-size: 12.5px; color: var(--muted);
 }
 .rc-phone, .rc-status { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .rc-status { flex: none; }
@@ -323,7 +325,7 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .pill.todo { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: transparent; }
 .pill.todo.urgent { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 /* Pastille de table dans la liste : lisible en un coup d'œil */
-.rc-tables .pill { font-size: 13px; font-weight: 650; padding: 4px 10px; }
+.rc-tables .pill { font-size: 12.5px; font-weight: 650; padding: 2px 9px; }
 
 .rc-note {
   display: flex; align-items: flex-start; gap: 7px; margin: 0;
@@ -354,8 +356,6 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .rc-note-buttons { display: flex; justify-content: flex-end; gap: 6px; }
 
 /* Actions : toujours visibles, icône + libellé */
-.rc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
-.rc-spacer { flex: 1; }
 .rc-btn {
   display: inline-flex; align-items: center; gap: 5px;
   height: 28px; padding: 0 7px; border-radius: 7px;
@@ -371,6 +371,35 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .rc-btn.icon-only { padding: 0 8px; }
 .rc-btn.icon-only span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .internal-field textarea { background: color-mix(in srgb, #e9b949 8%, var(--surface-2)); }
+
+/* ---------- Fiche d'une réservation (toucher une carte) ---------- */
+
+dialog.detail { width: min(440px, calc(100vw - 24px)); }
+.dt { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.dt-head { display: grid; grid-template-columns: 1fr auto auto; align-items: start; gap: 12px; }
+.dt-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dt-title h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.dt-people { font-size: 13px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
+.dt-people b { font-size: 22px; font-weight: 650; color: var(--ink); }
+.dt-rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
+.dt-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; padding: 9px 12px; font-size: 13.5px; }
+.dt-row + .dt-row { border-top: 1px solid var(--line); }
+.dt-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.dt-value { min-width: 0; overflow-wrap: anywhere; }
+.dt-value .pill { font-size: 13px; font-weight: 650; }
+.dt .rc-note { margin: 0; }
+.dt-main { display: flex; gap: 8px; flex-wrap: wrap; }
+.dt-main .rc-btn, .dt-actions .rc-btn { height: 38px; padding: 0 12px; font-size: 13.5px; }
+.dt-main .rc-btn.primary { flex: 1; justify-content: center; }
+.dt-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dt-actions .rc-btn { border-color: var(--line); justify-content: flex-start; min-width: 0; white-space: normal; text-align: left; line-height: 1.2; }
+.dt-actions .rc-btn.pinned { border-color: transparent; }
+@media (max-width: 700px) {
+  dialog.detail { margin: auto 0 0; width: 100%; max-width: 100%; border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .dt { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .dt-main .rc-btn, .dt-actions .rc-btn { height: 44px; font-size: 14.5px; }
+  .dt-row { grid-template-columns: 96px 1fr; }
+}
 
 /* ---------- Inspecteur ---------- */
 
@@ -879,10 +908,6 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 .tchip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .time-group { scroll-margin-top: 8px; }
 
-/* Client parti : carte réduite à une ligne (touchez-la pour l'ouvrir) */
-.res-card.status-left:not(.selected) { padding-top: 8px; padding-bottom: 8px; }
-.rc-head.rc-compact .rc-btn { grid-area: tables; justify-self: end; height: 30px; }
-.rc-was { color: var(--muted); }
 
 /* Carte qu'on vient de placer (retour du plan sur téléphone) */
 .res-card.flash { animation: card-flash 1.6s ease-out; }
@@ -968,8 +993,8 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .tchip { height: 34px; padding: 0 12px; font-size: 13.5px; }
 
   .res-list { gap: 10px; }
-  .res-card { padding: 14px 14px 10px; }
-  .rc-actions { gap: 4px; }
+  .res-card { padding: 12px 12px 10px; }
+  .rc-main .rc-btn { height: 36px; }
   .rc-btn { height: 40px; padding: 0 10px; font-size: 13.5px; }
   .rc-undo::after { inset: -12px -12px; } /* doigt : grande zone de toucher, même taille visible */
   .rc-note-editor textarea { font-size: 15px; }
@@ -998,7 +1023,6 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .topbar { flex-wrap: wrap; gap: 10px 12px; padding: 10px 16px; }
   .controls { order: 3; flex-basis: 100%; justify-content: space-between; }
   .actions { margin-left: auto; }
-  .rc-tables { max-width: 110px; }
   .legend { display: none; }
 }
 
@@ -1035,7 +1059,6 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .stat span { font-size: 11.5px; }
   .meter { flex-basis: 100%; height: 3px; margin-top: 4px; }
   .res-list { padding: 8px 10px 16px; }
-  .rc-tables { max-width: 120px; }
 
   .floor { min-height: 0; }
   .legend { display: none; }

@@ -31,7 +31,7 @@ const state = {
   view: 'list', // téléphone : vue affichée ('list' ou 'plan')
   sheetTable: null, // téléphone : table dont la fiche est ouverte
   search: '', // recherche dans la liste des réservations
-  noteEditing: null, // id de la réservation dont on modifie la note interne dans la liste
+  noteEditing: null, // id de la réservation dont on modifie la note interne (dans sa fiche)
   multiSelect: false, // mode "Sélection multiple" (= Ctrl+clic sans clavier)
   panMode: false, // mode "Déplacer la vue" en édition (glisser le fond déplace au lieu de sélectionner)
 };
@@ -216,6 +216,7 @@ function render() {
   renderPlacingBar();
   renderPlan();
   renderSheet();
+  renderDetail();
 }
 
 function renderControls() {
@@ -278,6 +279,8 @@ const ICONS = {
   edit: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
   remove: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   lock: svg(LOCK),
+  table: svg('<rect x="3" y="8" width="18" height="8" rx="2"/><path d="M7 4.5h3M14 4.5h3M7 19.5h3M14 19.5h3"/>'),
+  clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', 13),
   unlock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>'),
 };
 
@@ -294,39 +297,18 @@ function tablesPill(r, status) {
   return `<span class="pill ${cls}${pinned ? ' pinned' : ''}" title="${esc(title)}">${pinned ? pinMark() : ''}${esc(tableNames(r))}${tight ? ' · serré' : ''}</span>`;
 }
 
-/** Boutons d'action d'une carte : toujours visibles, avec un libellé. */
-function cardActionsHtml(r, status, placed) {
-  const btn = (action, icon, label, title, cls = '') =>
-    `<button type="button" class="rc-btn ${cls}" data-action="${action}" title="${esc(title)}">${icon}<span>${label}</span></button>`;
+const actionBtn = (action, icon, label, title, cls = '') =>
+  `<button type="button" class="rc-btn ${cls}" data-action="${action}" title="${esc(title)}">${icon}<span>${label}</span></button>`;
 
-  // Action principale selon l'avancement du service
-  let main = '';
-  if (status === 'expected') main = btn('arrive', ICONS.check, 'Arrivé', 'Les clients sont arrivés', 'primary');
-  else if (status === 'arrived' && placed) main = btn('leave', ICONS.door, 'Libérer', 'Les clients sont partis : la table redevient libre', 'primary');
-  else if (status === 'left') main = btn('restore', ICONS.undo, 'Rétablir', 'Erreur ou client revenu : la réservation reprend ses tables si elles sont libres');
-
-  const onPlan = placed && status !== 'left';
-  // Fixée : ni « Auto », ni « Tout retirer », ni un glisser par erreur ne la déplacent
-  const pin = !onPlan
-    ? ''
-    : r.pinned
-      ? btn('unpin', ICONS.lock, 'Fixée', 'Fixée à sa table — toucher pour la libérer (elle pourra de nouveau être déplacée)', 'pinned')
-      : btn('pin', ICONS.unlock, 'Fixer', 'Fixer à cette table : elle ne sera plus déplacée ni retirée par « Auto » ou « Tout retirer »');
-  const unplace = onPlan && !r.pinned
-    ? btn('unassign', ICONS.remove, 'Retirer', 'Retirer la réservation du plan (elle repasse « à placer »)', 'icon-only')
-    : '';
-
-  return `<div class="rc-actions">
-    ${main}
-    <span class="rc-spacer"></span>
-    ${pin}
-    ${btn('note', ICONS.note, 'Note', 'Ajouter ou modifier la note interne', r.internalNote ? 'has-note' : '')}
-    ${btn('edit', ICONS.edit, 'Modifier', 'Modifier la réservation')}
-    ${unplace}
-  </div>`;
+/** Action principale selon l'avancement du service (sur la carte et dans la fiche). */
+function mainActionHtml(r, status) {
+  if (status === 'expected') return actionBtn('arrive', ICONS.check, 'Arrivé', 'Les clients sont arrivés', 'primary');
+  if (status === 'left') return actionBtn('restore', ICONS.undo, 'Rétablir', 'Erreur ou client revenu : la réservation reprend ses tables si elles sont libres');
+  if (r.tableIds.length) return actionBtn('leave', ICONS.door, 'Libérer', 'Les clients sont partis : la table redevient libre', 'primary');
+  return actionBtn('place', ICONS.table, 'Placer', 'Choisir une table sur le plan', 'primary');
 }
 
-/** Éditeur rapide de la note interne, directement dans la carte. */
+/** Éditeur de la note interne (dans la fiche de la réservation). */
 function noteEditorHtml(r) {
   return `<div class="rc-note-editor">
     <label>${ICONS.pin} Note interne <em>— visible uniquement par l'équipe</em></label>
@@ -346,43 +328,22 @@ function cardHtml(r) {
   const statusTag = `<span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${
     status === 'arrived' ? `<button type="button" class="rc-undo" data-action="unarrive" title="Annuler l’arrivée">${ICONS.undo}</button>` : ''
   }</span>`;
-  const phone = r.phone
-    ? `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}" title="Appeler">${ICONS.phone}${esc(r.phone)}</a>`
-    : '';
   // À placer : orange ; rouge si les clients sont déjà là sans table
   const todo = status === 'left' ? '' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
 
-  // Clients partis : une seule ligne (plus rien à faire), sauf si on touche la carte pour l'ouvrir
-  if (status === 'left' && state.selectedRes !== r.id && state.noteEditing !== r.id) {
-    return `
-      <div class="rc-head rc-compact">
-        <span class="rc-name">${highlight(r.name, state.search)}</span>
-        <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
-        ${r.archived ? '' : `<button type="button" class="rc-btn" data-action="restore" title="Erreur ou client revenu : la réservation reprend ses tables si elles sont libres">${ICONS.undo}<span>Rétablir</span></button>`}
-        <span class="rc-sub">${statusTag}${placed ? `<span class="rc-was">${esc(tableNames(r))}</span>` : ''}</span>
-      </div>`;
-  }
-
-  // Ligne 1 : ce qu'on cherche du regard (nom, nombre de personnes, table). Ligne 2 : le reste, plus discret.
+  // Ligne 1 : nom, nombre de personnes, action principale. Ligne 2 : statut, table. Puis les notes, s'il y en a.
   return `
     <div class="rc-head">
       <span class="rc-name">${highlight(r.name, state.search)}</span>
       <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
-      <div class="rc-tables">${placed ? tablesPill(r, status) : todo}</div>
+      ${r.archived ? '' : `<span class="rc-main">${mainActionHtml(r, status)}</span>`}
       <span class="rc-sub">
         ${statusTag}
-        ${phone}
+        <span class="rc-tables">${placed ? tablesPill(r, status) : todo}</span>
       </span>
     </div>
     ${r.notes ? `<p class="rc-note client" title="Demande du client">${ICONS.quote}<span>${esc(r.notes)}</span></p>` : ''}
-    ${
-      state.noteEditing === r.id
-        ? noteEditorHtml(r)
-        : r.internalNote
-          ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>`
-          : ''
-    }
-    ${r.archived ? '' : cardActionsHtml(r, status, placed)}`;
+    ${r.internalNote ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>` : ''}`;
 }
 
 async function saveInternalNote(r, text) {
@@ -443,14 +404,13 @@ function renderList() {
   syncTimeStrip();
 }
 
-/** Carte d'une réservation, avec ses actions (utilisée dans la liste et dans la fiche du plan sur téléphone). */
+/** Carte d'une réservation (utilisée dans la liste et dans la fiche du plan sur téléphone). */
 function buildCard(r) {
   const status = statusOf(r);
-  const editing = state.noteEditing === r.id;
   const li = document.createElement('li');
   li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
-  // pas de glisser pendant la saisie de la note, ni pour une réservation fixée
-  const movable = status !== 'left' && !editing && !r.archived && !r.pinned;
+  // pas de glisser pour une réservation fixée
+  const movable = status !== 'left' && !r.archived && !r.pinned;
   li.draggable = movable;
   li.dataset.id = r.id;
   li.innerHTML = cardHtml(r);
@@ -459,60 +419,159 @@ function buildCard(r) {
   li.addEventListener('dragend', endDrag);
   // Au doigt : appui long puis glisser vers une table
   li.addEventListener('pointerdown', (e) => {
-    if (movable && !e.target.closest('button, a, textarea')) armTouchDrag(e, r.id, li);
+    if (movable && !e.target.closest('button, a')) armTouchDrag(e, r.id, li);
   });
   li.addEventListener('click', (e) => {
-    if (e.target.closest('a, textarea')) return; // lien téléphone, saisie de la note
+    if (e.target.closest('a')) return; // lien téléphone
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'edit') return openDialog(r);
-    if (action === 'unassign') return unassign(r.id);
-    if (action === 'pin') return setPinned(r, true);
-    if (action === 'unpin') return setPinned(r, false);
-    if (action === 'arrive') return setStatus(r, 'arrived');
-    if (action === 'unarrive') return setStatus(r, 'expected');
-    if (action === 'leave') return setStatus(r, 'left');
-    if (action === 'restore') return setStatus(r, 'arrived');
-    if (action === 'note') {
-      state.noteEditing = editing ? null : r.id;
-      render();
-      $(`.res-card[data-id="${r.id}"] textarea`)?.focus();
-      return;
-    }
-    if (action === 'note-cancel') {
-      state.noteEditing = null;
-      return render();
-    }
-    if (action === 'note-save') return saveInternalNote(r, $('textarea', li).value);
-    if (e.target.closest('.rc-note-editor')) return;
-    onCardTap(r);
-  });
-  li.addEventListener('dblclick', (e) => {
-    if (!r.archived && !e.target.closest('button, a, .rc-note-editor')) openDialog(r);
+    if (action) return resAction(r, action);
+    openDetail(r); // toucher la carte : fiche avec les détails et toutes les actions
   });
   return li;
 }
 
+/* ---------- Fiche d'une réservation ---------- */
+
+const detailEl = $('#resDetail');
+let detailId = null;
+
+const longDate = (iso) =>
+  new Date(`${iso}T12:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+/** Ouvre la fiche : détails + actions. Sa table s'allume sur le plan. */
+function openDetail(r) {
+  detailId = r.id;
+  state.noteEditing = null;
+  state.placing = null;
+  state.selectedRes = r.id;
+  if (!detailEl.open) detailEl.showModal();
+  render(); // dessine aussi la fiche (elle doit déjà être ouverte)
+  // Ordinateur / tablette : on amène aussi sa table à l'écran
+  if (r.tableIds.length && !isPhone()) requestAnimationFrame(() => revealTables(r.tableIds));
+}
+
+function closeDetail() {
+  if (detailEl.open) detailEl.close();
+}
+
+detailEl.addEventListener('close', () => {
+  detailId = null;
+  state.noteEditing = null;
+  detailEl.innerHTML = '';
+});
+// Toucher en dehors de la fiche la ferme
+detailEl.addEventListener('click', (e) => {
+  if (e.target === detailEl) return closeDetail();
+  if (e.target.closest('[data-detail="close"]')) return closeDetail();
+  const action = e.target.closest('[data-action]')?.dataset.action;
+  const r = resById(detailId);
+  if (action && r) resAction(r, action);
+});
+
+function renderDetail() {
+  if (!detailEl.open) return;
+  const r = resById(detailId);
+  if (!r) return closeDetail(); // supprimée (ou changée de jour) entre-temps
+  const status = statusOf(r);
+  const placed = r.tableIds.length > 0;
+  const active = isActive(r) && !r.archived;
+  const statusTime = status === 'arrived' ? hhmm(r.arrivedAt) : status === 'left' ? hhmm(r.leftAt) : '';
+  const tables = placed
+    ? tablesPill(r, status)
+    : status === 'left' ? '<span class="muted">Aucune table</span>' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
+  const capacity = cap(r.tableIds);
+
+  const row = (icon, label, value) => `<div class="dt-row"><span class="dt-label">${icon}${label}</span><span class="dt-value">${value}</span></div>`;
+  const rows = [
+    row(ICONS.clock, 'Quand', `${esc(longDate(r.date))} · <b>${esc(r.time)}</b>`),
+    row(ICONS.table, 'Tables', `${tables}${placed && status !== 'left' ? ` <span class="muted">${capacity} places</span>` : ''}`),
+    r.phone ? row(ICONS.phone, 'Téléphone', `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}">${esc(r.phone)}</a>`) : '',
+    r.notes ? row(ICONS.quote, 'Demande', esc(r.notes)) : '',
+  ].join('');
+
+  const note = state.noteEditing === r.id
+    ? noteEditorHtml(r)
+    : r.internalNote
+      ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>`
+      : '';
+
+  // Toutes les actions, avec leur libellé
+  const actions = active
+    ? [
+        r.pinned ? '' : actionBtn('place', ICONS.table, placed ? 'Changer de table' : 'Placer sur une table', 'Toucher ensuite une table du plan'),
+        placed
+          ? r.pinned
+            ? actionBtn('unpin', ICONS.lock, 'Fixée — libérer', 'Elle pourra de nouveau être déplacée ou retirée', 'pinned')
+            : actionBtn('pin', ICONS.unlock, 'Fixer à cette table', 'Elle ne sera plus déplacée ni retirée par « Auto » ou « Tout retirer »')
+          : '',
+        placed && !r.pinned ? actionBtn('unassign', ICONS.remove, 'Retirer du plan', 'La réservation repasse « à placer »') : '',
+        actionBtn('note', ICONS.note, r.internalNote ? 'Modifier la note' : 'Note interne', 'Note visible uniquement par l’équipe', r.internalNote ? 'has-note' : ''),
+        actionBtn('edit', ICONS.edit, 'Modifier', 'Nom, nombre de personnes, heure, téléphone… (et supprimer)'),
+      ].join('')
+    : '';
+
+  detailEl.innerHTML = `
+    <div class="dt">
+      <header class="dt-head">
+        <div class="dt-title">
+          <h2 id="detailName">${esc(r.name)}</h2>
+          <span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${r.archived ? ' · archivée' : ''}</span>
+        </div>
+        <span class="dt-people"><b>${r.people}</b> pers.</span>
+        <button type="button" class="icon-btn" data-detail="close" aria-label="Fermer">✕</button>
+      </header>
+      <div class="dt-rows">${rows}</div>
+      ${note}
+      ${active || status === 'left' ? `<div class="dt-main">${mainActionHtml(r, status)}${
+        status === 'arrived' ? actionBtn('unarrive', ICONS.undo, 'Annuler l’arrivée', 'Arrivée cochée par erreur') : ''}</div>` : ''}
+      ${actions ? `<div class="dt-actions">${actions}</div>` : ''}
+    </div>`;
+}
+
+/** Actions d'une réservation (boutons de la carte et de la fiche). */
+function resAction(r, action) {
+  if (action === 'arrive') return setStatus(r, 'arrived');
+  if (action === 'unarrive') return setStatus(r, 'expected');
+  if (action === 'leave') return setStatus(r, 'left');
+  if (action === 'restore') return setStatus(r, 'arrived');
+  if (action === 'place') {
+    closeDetail();
+    return startPlacing(r);
+  }
+  if (action === 'edit') {
+    closeDetail();
+    return openDialog(r);
+  }
+  if (action === 'unassign') return unassign(r.id);
+  if (action === 'pin') return setPinned(r, true);
+  if (action === 'unpin') return setPinned(r, false);
+  if (action === 'note') {
+    state.noteEditing = state.noteEditing === r.id ? null : r.id;
+    renderDetail();
+    $('#resDetail textarea')?.focus();
+    return;
+  }
+  if (action === 'note-cancel') {
+    state.noteEditing = null;
+    return renderDetail();
+  }
+  if (action === 'note-save') return saveInternalNote(r, $('#resDetail textarea').value);
+}
+
 /**
- * Toucher une carte = « où la placer ? » ; la retoucher pendant ce mode l'annule.
+ * Mode placement : toucher ensuite une table du plan pour y installer la réservation.
  * Sur téléphone, le plan s'ouvre pour choisir la table, puis on revient à la liste.
  */
-function onCardTap(r) {
-  if (r.archived || (r.pinned && isActive(r))) {
-    // Archivée ou fixée : on la sélectionne seulement (sa table s'allume), sans la déplacer
-    state.selectedRes = state.selectedRes === r.id ? null : r.id;
-    return render();
-  }
-  const cancelling = state.placing === r.id || (!isActive(r) && state.selectedRes === r.id);
-  state.selectedRes = cancelling ? null : r.id;
-  state.placing = !cancelling && isActive(r) ? r.id : null;
-  state.returnToList = Boolean(state.placing && isPhone() && state.view === 'list');
+function startPlacing(r) {
+  if (!isActive(r) || r.pinned || r.archived) return;
+  state.selectedRes = r.id;
+  state.placing = r.id;
+  state.returnToList = isPhone() && state.view === 'list';
   closeSheet();
-  if (state.placing && isPhone()) setView('plan');
+  if (isPhone()) setView('plan');
   render();
   // Déjà placée : on amène sa table à l'écran (après le recadrage du plan, d'où le double rAF)
-  if (!cancelling && r.tableIds.length && isActive(r)) {
-    requestAnimationFrame(() => requestAnimationFrame(() => revealTables(r.tableIds)));
-  }
+  if (r.tableIds.length) requestAnimationFrame(() => requestAnimationFrame(() => revealTables(r.tableIds)));
 }
 
 /** Fait défiler le plan (sans changer le zoom) pour que ces tables soient bien visibles. */
@@ -2771,7 +2830,7 @@ els.planWrap.addEventListener('pointerdown', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (els.dialog.open || e.target.closest('input, select, textarea')) return;
+  if (els.dialog.open || detailEl.open || e.target.closest('input, select, textarea')) return;
   if (e.key === 'Escape' && state.grouping) return cancelGrouping();
   if (e.key === 'Escape' && state.placing) return cancelPlacing();
   if (e.key === 'Escape' && state.linking) {
