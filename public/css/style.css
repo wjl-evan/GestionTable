@@ -379,6 +379,12 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 /* ---------- Fiche d'une réservation (toucher une carte) ---------- */
 
 dialog.detail { width: min(440px, calc(100vw - 24px)); }
+/* Ordinateur / tablette : fiche au centre, voile léger et sans flou :
+   la table mise en évidence reste bien visible derrière */
+@media (min-width: 701px) {
+  dialog.detail { max-height: calc(100vh - 48px); overflow-y: auto; }
+  dialog.detail::backdrop { background: rgba(20, 20, 15, .12); backdrop-filter: none; }
+}
 .dt { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .dt-head { display: grid; grid-template-columns: 1fr auto auto; align-items: start; gap: 12px; }
 .dt-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -680,8 +686,6 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
   transition: outline-color .15s;
   animation: merge-in .35s cubic-bezier(.2, .8, .2, 1);
 }
-.merge.selected { outline-color: color-mix(in srgb, var(--accent) 22%, transparent); }
-.merge.expected.selected { outline-color: color-mix(in srgb, var(--resv) 25%, transparent); }
 .merge-label {
   position: absolute; z-index: 3; pointer-events: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -696,21 +700,46 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
   to { transform: none; opacity: 1; }
 }
 
-/* Réservation sélectionnée : sa table ressort nettement (halo qui pulse deux fois, puis reste) */
+/* Réservation sélectionnée : sa table ressort nettement.
+   - projecteur : les autres tables s'effacent (visible même en vue d'ensemble, très dézoomée) ;
+   - anneau épais de la couleur du statut (bleu attendu, vert arrivé) + halo ;
+   - le halo pulse trois fois au moment de la sélection, puis reste fixe (rien ne clignote en continu). */
+.table, .merge, .merge-label, .connectors { transition: opacity .25s ease; }
+body.spotlight .table:not(.selected),
+body.spotlight .merge:not(.selected),
+body.spotlight .merge-label:not(.selected),
+body.spotlight .connectors:not(.selected) { opacity: .28; }
+
 .table.selected { z-index: 4; }
 .table.selected:not(.grouped) .top {
   --hl: var(--accent);
-  border-width: 2.5px;
-  box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px color-mix(in srgb, var(--hl) 55%, transparent);
-  animation: table-highlight 1s ease-out 2;
+  border-width: 3px; border-style: solid; border-color: var(--hl);
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--hl), 0 0 28px 10px color-mix(in srgb, var(--hl) 45%, transparent);
 }
 .table.busy.expected.selected .top { --hl: var(--resv); }
-.merge.selected { outline-width: 6px; animation: table-highlight-merge 1s ease-out 2; }
-@keyframes table-highlight {
-  0% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px color-mix(in srgb, var(--hl) 55%, transparent); }
-  50% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 16px color-mix(in srgb, var(--hl) 10%, transparent); }
+.table.selected.pulse:not(.grouped) .top { animation: table-highlight 0.9s ease-in-out 3; }
+.table.selected .chair { background: var(--ink-2); }
+.table.busy.selected .chair.taken { background: var(--accent); }
+.table.busy.expected.selected .chair.taken { background: var(--resv); }
+
+.merge.selected {
+  --hl: var(--accent);
+  border: 3px solid var(--hl); outline: 0;
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--hl), 0 0 28px 10px color-mix(in srgb, var(--hl) 45%, transparent);
 }
-@keyframes table-highlight-merge { 50% { outline-width: 14px; } }
+.merge.expected.selected { --hl: var(--resv); }
+.merge.selected.pulse { animation: merge-highlight 0.9s ease-in-out 3; }
+.connectors.selected line { opacity: 1; stroke-width: 8; }
+
+@keyframes table-highlight {
+  50% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--hl), 0 0 0 22px color-mix(in srgb, var(--hl) 25%, transparent); }
+}
+@keyframes merge-highlight {
+  50% { box-shadow: 0 0 0 3px var(--surface), 0 0 0 7px var(--hl), 0 0 0 22px color-mix(in srgb, var(--hl) 25%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table.selected.pulse .top, .merge.selected.pulse { animation: none; }
+}
 
 /* Aperçu pendant le glisser-déposer */
 body.dragging .table.free .top { border-style: dashed; }
@@ -1087,4 +1116,34 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   dialog .row .field { flex: 1 1 40%; min-width: 0; }
   /* La date a besoin de place : seule sur sa ligne, en premier */
   dialog .row .field:has(input[type="date"]) { flex-basis: 100%; order: -1; }
+
+  /* ---- Haut de la liste compact : plus de réservations visibles ----
+     Les zones de toucher restent ≥ 34 px ; le champ de recherche garde 16 px (pas de zoom auto sur iPhone). */
+  .topbar { padding: 5px 8px; padding-top: max(5px, env(safe-area-inset-top)); }
+  .topbar .icon-btn { width: 34px; height: 38px; }
+  .date-nav input { height: 38px; }
+  .segmented button { min-height: 36px; padding: 6px 14px; }
+
+  .panel-head { padding: 7px 10px 6px; gap: 6px; }
+  /* Statistiques : une seule ligne discrète, la barre de progression juste dessous */
+  .stats { flex-wrap: nowrap; gap: 12px; overflow: hidden; white-space: nowrap; position: relative; padding-bottom: 5px; }
+  .stat strong { font-size: 14px; }
+  .stat span { font-size: 11px; }
+  .meter { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; margin: 0; }
+
+  .search input { height: 40px; font-size: 16px; }
+  .search-row .btn.small { height: 40px; }
+  .fchip { height: 34px; padding: 0 12px; font-size: 13px; }
+  .time-strip { padding: 5px 10px; }
+  .tchip { height: 30px; padding: 0 10px; font-size: 13px; }
+
+  /* En faisant défiler la liste vers le bas, statistiques et filtres s'effacent (comme la barre
+     d'adresse du navigateur) ; ils reviennent dès qu'on remonte. La recherche reste toujours là. */
+  .panel-head .stats, .panel-head .filter-row {
+    max-height: 48px;
+    transition: max-height .2s ease, opacity .2s ease, margin .2s ease;
+  }
+  .panel-head .filter-row { overflow: hidden; }
+  .panel.compact-head .stats, .panel.compact-head .filter-row { max-height: 0; opacity: 0; margin-top: -6px; pointer-events: none; }
+  .panel.compact-head .stats { padding-bottom: 0; }
 }

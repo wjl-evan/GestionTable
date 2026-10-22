@@ -439,6 +439,17 @@ function buildCard(r) {
 
 const detailEl = $('#resDetail');
 let detailId = null;
+let keepSelectionOnClose = false;
+
+/** Téléphone : le plan est sur un autre écran ; on y va, centré sur la table mise en évidence. */
+function showOnPlan(r) {
+  keepSelectionOnClose = true;
+  closeDetail();
+  state.selectedRes = r.id;
+  setView('plan');
+  render();
+  requestAnimationFrame(() => requestAnimationFrame(() => revealTables(r.tableIds)));
+}
 
 const longDate = (iso) =>
   new Date(`${iso}T12:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -460,9 +471,19 @@ function closeDetail() {
 }
 
 detailEl.addEventListener('close', () => {
+  const id = detailId;
   detailId = null;
   state.noteEditing = null;
   detailEl.innerHTML = '';
+  // Fiche fermée : le plan redevient normal (sauf si on enchaîne sur « Placer » ou « Voir sur le plan »)
+  if (keepSelectionOnClose) {
+    keepSelectionOnClose = false;
+    return;
+  }
+  if (state.selectedRes === id && !state.placing && !state.grouping) {
+    state.selectedRes = null;
+    render();
+  }
 });
 // Toucher en dehors de la fiche la ferme
 detailEl.addEventListener('click', (e) => {
@@ -503,6 +524,7 @@ function renderDetail() {
   // Toutes les actions, avec leur libellé
   const actions = active
     ? [
+        placed && isPhone() ? actionBtn('show', ICONS.table, 'Voir sur le plan', 'Ouvrir le plan, sa table mise en évidence', 'primary') : '',
         r.pinned ? '' : actionBtn('place', ICONS.table, placed ? 'Changer de table' : 'Placer sur une table', 'Toucher ensuite une table du plan'),
         placed
           ? r.pinned
@@ -543,6 +565,7 @@ function resAction(r, action) {
     closeDetail();
     return startPlacing(r);
   }
+  if (action === 'show') return showOnPlan(r);
   if (action === 'edit') {
     closeDetail();
     return openDialog(r);
@@ -1121,6 +1144,9 @@ function chairSelectHtml(value, attrs = '') {
   </label>`;
 }
 
+let lastSpot = null; // réservation mise en évidence au dernier rendu
+let pulseNow = false;
+
 function renderPlan() {
   const { plan } = els;
   const { room } = state;
@@ -1140,6 +1166,15 @@ function renderPlan() {
   renderLinks();
 
   const occ = occupancy();
+
+  // Projecteur : la réservation sélectionnée a une table sur le plan → les autres tables s'effacent.
+  // (Pas pendant un placement ou un regroupement : ces modes ont leur propre mise en évidence.)
+  const spot = !state.editMode && !state.placing && !state.grouping &&
+    [...occ.values()].some((r) => r.id === state.selectedRes);
+  document.body.classList.toggle('spotlight', spot);
+  // Le halo ne pulse qu'au moment où l'on sélectionne, pas à chaque rafraîchissement
+  pulseNow = spot && state.selectedRes !== lastSpot;
+  lastSpot = spot ? state.selectedRes : null;
 
   if (!state.editMode) {
     for (const r of activeReservations()) if (r.tableIds.length > 1) renderMergedGroup(r);
@@ -1217,12 +1252,12 @@ function renderMergedGroup(r) {
   const { plan } = els;
   const ts = r.tableIds.map(tableById).filter(Boolean);
   const clusters = mergeClusters(ts);
-  const selected = state.selectedRes === r.id ? ' selected' : '';
+  const selected = state.selectedRes === r.id ? ` selected${pulseNow ? ' pulse' : ''}` : '';
 
   // Blocs éloignés : reliés par le chemin le plus court
   if (clusters.length > 1) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.classList.add('connectors');
+    svg.setAttribute('class', `connectors${selected}`);
     svg.setAttribute('viewBox', `0 0 ${state.room.w} ${state.room.h}`);
     svg.innerHTML = spanningEdges(clusters.map((c) => center(boxOf(c))))
       .map(([a, b]) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`)
@@ -1244,7 +1279,7 @@ function renderMergedGroup(r) {
     return b.w * b.h > bb.w * bb.h ? c : big;
   }));
   const label = document.createElement('div');
-  label.className = `merge-label ${statusOf(r)}`;
+  label.className = `merge-label ${statusOf(r)}${selected}`;
   Object.assign(label.style, boxStyle(main));
   label.innerHTML = `${r.pinned ? pinMark() : ''}<span class="t-guest">${esc(r.name)}</span>
     <span class="t-meta">${tableMeta(r, cap(r.tableIds))}</span>`;
@@ -1341,7 +1376,7 @@ function tableElement(t, res) {
   const grouped = res && res.tableIds.length > 1;
   const el = document.createElement('div');
   el.className = ['table', t.shape, res ? `busy ${statusOf(res)}` : 'free', grouped ? 'grouped' : '', res?.pinned ? 'pinned' : '',
-    res && state.selectedRes === res.id ? 'selected' : '',
+    res && state.selectedRes === res.id ? `selected${pulseNow ? ' pulse' : ''}` : '',
     state.grouping?.tableIds.includes(t.id) ? 'grouping-pick' : '',
     t.mergeable ? 'mergeable' : ''].filter(Boolean).join(' ');
   el.dataset.id = t.id;
@@ -2687,7 +2722,28 @@ let stripFrame = 0;
 els.resList.addEventListener('scroll', () => {
   cancelAnimationFrame(stripFrame);
   stripFrame = requestAnimationFrame(syncTimeStrip);
+  autoCompactHead();
 });
+
+/*
+ * Téléphone : en descendant dans la liste, statistiques et filtres s'effacent pour montrer plus de
+ * réservations ; ils reviennent dès qu'on remonte un peu, ou en haut de la liste.
+ * Seuils différents pour descendre / remonter : pas de clignotement sur un petit mouvement du doigt.
+ */
+let lastListScroll = 0;
+function autoCompactHead() {
+  const top = els.resList.scrollTop;
+  const delta = top - lastListScroll;
+  lastListScroll = top;
+  if (!isPhone() || top < 30) return setCompactHead(false);
+  if (delta > 8) setCompactHead(true);
+  else if (delta < -14) setCompactHead(false);
+}
+function setCompactHead(on) {
+  els.sidebar.classList.toggle('compact-head', on);
+}
+// On cherche ou on filtre : tout réapparaît
+$('#search').addEventListener('focus', () => setCompactHead(false));
 
 $('#editToggle').addEventListener('click', () => {
   state.editMode = !state.editMode;
