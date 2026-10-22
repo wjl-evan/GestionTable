@@ -151,12 +151,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .segmented button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 .filter-row { display: flex; gap: 8px; align-items: stretch; }
-.auto-btn { height: auto; color: var(--accent); }
+.auto-btn { color: var(--accent); }
 .auto-btn:disabled { opacity: .45; cursor: default; }
 .auto-btn.busy svg { animation: spin 1s linear infinite; }
-.clear-btn { height: auto; color: var(--ink-2); }
+.clear-btn { color: var(--ink-2); }
 .clear-btn:disabled { opacity: .45; cursor: default; }
-@media (max-width: 1100px) { .clear-btn span { display: none; } }
+/* Icône seule : bouton carré */
+@media (max-width: 1100px) {
+  .clear-btn span { display: none; }
+  .search-row > .clear-btn { width: var(--search-h); padding: 0; justify-content: center; }
+}
 
 /* Réservation fixée : cadenas violet (carte, pastille, plan) */
 .pin-mark { display: inline-flex; color: var(--pin); }
@@ -186,7 +190,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: background .15s;
 }
 .panel.drop-target { background: var(--accent-soft); }
-.panel-head { padding: 20px 20px 14px; display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid var(--line); }
+.panel-head { padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
 .panel-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .muted { color: var(--muted); margin: 0; line-height: 1.5; font-size: 13px; }
 .shortcuts { font-size: 12px; }
@@ -205,6 +209,19 @@ kbd {
 .meter { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; display: flex; }
 .meter i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
 .meter i.left { background: var(--muted); opacity: .5; }
+
+/* Ordinateur / tablette : statistiques dans l'en-tête, sur une ligne, la barre de progression dessous.
+   La liste des réservations garde ainsi toute sa hauteur. */
+.top-stats { display: flex; min-width: 0; }
+.top-stats .stats {
+  display: flex; align-items: baseline; gap: 16px; position: relative;
+  padding-bottom: 7px; white-space: nowrap; min-width: 0; overflow: hidden;
+}
+.top-stats .stat { flex-direction: row; align-items: baseline; gap: 5px; }
+.top-stats .stat strong { font-size: 17px; }
+.top-stats .stat span { font-size: 12px; }
+.top-stats .meter { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
+.top-stats:empty { display: none; }
 
 /* ---------- Liste des réservations ---------- */
 
@@ -232,12 +249,15 @@ kbd {
 .link-btn:hover { text-decoration: underline; }
 
 /* Recherche (+ bouton « Auto » à côté) */
-.search-row { display: flex; gap: 8px; align-items: stretch; }
+.search-row { --search-h: 38px; display: flex; gap: 8px; align-items: center; }
+/* Auto et Tout retirer : exactement la hauteur du champ de recherche, quel que soit l'écran,
+   et jamais écrasés quand la place manque (c'est le champ qui rétrécit) */
+.search-row > .btn.small { height: var(--search-h); flex: none; }
 .search-row .search { flex: 1; min-width: 0; }
 .search { position: relative; display: flex; align-items: center; }
 .search svg { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
 .search input {
-  width: 100%; height: 38px; padding: 0 34px;
+  width: 100%; height: var(--search-h, 38px); padding: 0 34px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
@@ -896,7 +916,7 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 
 /* ---------- Liste : filtres, créneaux ---------- */
 
-/* Filtres : puces avec compteur, défilement horizontal si l'écran est étroit */
+/* Filtres : puces avec compteur, sur une seule ligne qu'on fait défiler (comme les heures) */
 .filter-chips {
   flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
   -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
@@ -904,11 +924,6 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
   padding-right: 18px;
 }
 .filter-chips::-webkit-scrollbar { display: none; }
-/* Ordinateur et tablette : la place ne manque pas, les puces passent à la ligne (toutes visibles) */
-@media (min-width: 701px) {
-  .filter-chips { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; padding-right: 0; }
-  .filter-row { align-items: flex-start; }
-}
 .fchip {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
   height: 32px; padding: 0 11px; border-radius: 999px;
@@ -926,7 +941,7 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 /* Bande des créneaux : un toucher amène la liste à l'heure voulue */
 .time-strip {
   display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
-  padding: 8px 12px; border-bottom: 1px solid var(--line);
+  padding: 6px 12px; border-bottom: 1px solid var(--line);
 }
 .time-strip::-webkit-scrollbar { display: none; }
 .tchip {
@@ -1020,7 +1035,8 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .icon-btn.small { width: 36px; height: 36px; }
   .segmented button { padding: 9px 18px; min-height: 40px; }
   .date-nav input { height: 42px; }
-  .search input { height: 44px; font-size: 15px; }
+  .search-row { --search-h: 44px; }
+  .search input { font-size: 15px; }
   .search-clear { width: 36px; height: 36px; }
   .fchip { height: 38px; padding: 0 13px; font-size: 13.5px; }
   .tchip { height: 34px; padding: 0 12px; font-size: 13.5px; }
@@ -1049,12 +1065,15 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
 
 /* ---------- Responsive ---------- */
 
+/* Écrans moyens : en-tête sur deux lignes (titre + boutons, puis date, statistiques et service) */
+@media (max-width: 1400px) and (min-width: 701px) {
+  .topbar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px; }
+  .controls { order: 3; flex-basis: 100%; justify-content: space-between; }
+}
+
 /* Tablette en portrait (et petits écrans d'ordinateur) : liste plus étroite, toujours à côté du plan */
 @media (max-width: 1100px) and (min-width: 701px) {
   .layout { grid-template-columns: 340px 1fr; }
-  /* En-tête sur deux lignes : titre + boutons, puis date et service */
-  .topbar { flex-wrap: wrap; gap: 10px 12px; padding: 10px 16px; }
-  .controls { order: 3; flex-basis: 100%; justify-content: space-between; }
   .actions { margin-left: auto; }
   .legend { display: none; }
 }
@@ -1131,8 +1150,8 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .stat span { font-size: 11px; }
   .meter { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; margin: 0; }
 
-  .search input { height: 40px; font-size: 16px; }
-  .search-row .btn.small { height: 40px; }
+  .search-row { --search-h: 40px; }
+  .search input { font-size: 16px; }
   .fchip { height: 34px; padding: 0 12px; font-size: 13px; }
   .time-strip { padding: 5px 10px; }
   .tchip { height: 30px; padding: 0 10px; font-size: 13px; }
@@ -1146,4 +1165,9 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .panel-head .filter-row { overflow: hidden; }
   .panel.compact-head .stats, .panel.compact-head .filter-row { max-height: 0; opacity: 0; margin-top: -6px; pointer-events: none; }
   .panel.compact-head .stats { padding-bottom: 0; }
+}
+/* Barres de puces à la souris : on peut les attraper pour les faire défiler */
+@media (hover: hover) and (pointer: fine) {
+  .filter-chips.grabbing, .time-strip.grabbing { cursor: grabbing; user-select: none; }
+  .filter-chips.grabbing button, .time-strip.grabbing button { cursor: grabbing; }
 }

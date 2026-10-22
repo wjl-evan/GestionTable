@@ -2242,6 +2242,18 @@ function fitToVisibleArea() {
   document.documentElement.style.setProperty('--vv-bottom', `${Math.round(hidden)}px`);
 }
 fitToVisibleArea();
+
+/**
+ * Statistiques du service : dans l'en-tête sur ordinateur et tablette (la liste garde toute sa hauteur),
+ * en haut de la liste sur téléphone (l'en-tête n'a la place que pour la date et le service).
+ */
+const statsHome = els.stats.parentElement;
+function placeStats() {
+  const target = phoneMQ.matches ? statsHome : $('#topStats');
+  if (els.stats.parentElement !== target) target.prepend(els.stats);
+}
+placeStats();
+phoneMQ.addEventListener('change', placeStats);
 window.visualViewport?.addEventListener('resize', fitToVisibleArea);
 window.addEventListener('resize', fitToVisibleArea);
 window.addEventListener('orientationchange', () => setTimeout(fitToVisibleArea, 300));
@@ -2718,6 +2730,49 @@ $('#timeStrip').addEventListener('click', (e) => {
   const chip = e.target.closest('[data-time]');
   if (chip) scrollToTime(chip.dataset.time);
 });
+
+/**
+ * Barres horizontales (filtres, créneaux) à la souris : la molette les fait défiler de côté,
+ * et on peut aussi les attraper et les faire glisser. Au doigt, le défilement natif suffit.
+ */
+function mouseScrollable(bar) {
+  bar.addEventListener(
+    'wheel',
+    (e) => {
+      if (bar.scrollWidth <= bar.clientWidth) return; // tout est visible : la molette garde son rôle
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const max = bar.scrollWidth - bar.clientWidth;
+      // Déjà au bout dans ce sens : on laisse la page / la liste défiler normalement
+      if ((delta < 0 && bar.scrollLeft <= 0) || (delta > 0 && bar.scrollLeft >= max)) return;
+      e.preventDefault();
+      bar.scrollLeft += delta * (e.deltaMode === 1 ? 30 : 1); // molette « par lignes » (Firefox)
+    },
+    { passive: false }
+  );
+
+  let drag = null;
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || bar.scrollWidth <= bar.clientWidth) return;
+    drag = { x: e.clientX, left: bar.scrollLeft, moved: false };
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    if (!drag.moved && Math.abs(dx) < 5) return; // petit tremblement : c'est un clic
+    drag.moved = true;
+    bar.classList.add('grabbing');
+    bar.scrollLeft = drag.left - dx;
+  });
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    // Fin d'un glisser : le relâchement ne doit pas activer la puce sous la souris
+    if (drag.moved) bar.addEventListener('click', (ev) => ev.stopPropagation(), { capture: true, once: true });
+    bar.classList.remove('grabbing');
+    drag = null;
+  });
+}
+mouseScrollable($('#filters'));
+mouseScrollable($('#timeStrip'));
 let stripFrame = 0;
 els.resList.addEventListener('scroll', () => {
   cancelAnimationFrame(stripFrame);
