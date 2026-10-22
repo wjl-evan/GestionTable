@@ -166,11 +166,27 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pin-mark { display: inline-flex; color: var(--pin); }
 .pill.pinned { display: inline-flex; align-items: center; gap: 4px; box-shadow: inset 0 0 0 1.5px var(--pin); }
 .rc-btn.pinned { color: var(--pin); background: var(--pin-soft); border-color: transparent; }
-.table.pinned:not(.grouped) .top { box-shadow: 0 0 0 2px var(--pin); }
-.table .top .pin-mark { position: absolute; top: 4px; right: 5px; }
-.table.round .top .pin-mark { position: static; }
-.merge.pinned { box-shadow: 0 0 0 2px var(--pin); }
-.merge-label .pin-mark { margin-bottom: 1px; }
+/* Sur le plan : anneau violet détaché du bord + rayures violettes discrètes + pastille cadenas au coin.
+   La couleur du statut (bleu attendu, vert arrivé) reste visible à l'intérieur. */
+.table.pinned:not(.grouped) .top,
+.merge.pinned {
+  box-shadow: 0 0 0 2px var(--floor), 0 0 0 5px var(--pin), 0 0 16px 3px color-mix(in srgb, var(--pin) 35%, transparent);
+}
+/* (sélecteurs renforcés : les couleurs de statut, plus loin, redéfinissent tout le fond) */
+.plan .table.busy.pinned:not(.grouped) .top,
+.plan .merge.pinned {
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--pin) 14%, transparent) 0 5px, transparent 5px 11px);
+}
+.pin-badge {
+  position: absolute; top: -11px; right: -11px; z-index: 3;
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--pin); color: #fff; box-shadow: 0 0 0 2px var(--floor);
+  pointer-events: none;
+}
+.table.round .pin-badge { top: -4px; right: -4px; }
+/* Fusion : pastille posée sur le coin du bloc (coordonnées du plan) */
+.pin-badge.plan-badge { right: auto; transform: translate(-50%, -50%); top: auto; z-index: 3; transition: opacity .25s ease; }
+body.spotlight .pin-badge.plan-badge:not(.selected) { opacity: .28; }
 .dot.pinned { background: var(--surface); border: 2px solid var(--pin); }
 @keyframes spin { to { transform: rotate(360deg); } }
 

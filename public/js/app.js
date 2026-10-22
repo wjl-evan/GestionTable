@@ -286,6 +286,8 @@ const ICONS = {
 
 /** Petit cadenas des réservations fixées (carte, plan). */
 const pinMark = (size = 11) => `<span class="pin-mark" title="Fixée à cette table">${svg(LOCK, size)}</span>`;
+/** Pastille violette au coin d'une table fixée (plan) : visible même en vue d'ensemble. */
+const pinBadge = (cls = '') => `<span class="pin-badge${cls}" title="Fixée à cette table">${svg(LOCK, 12)}</span>`;
 
 /** Pastille des tables d'une réservation ; orange si on se serre (moins de places que de personnes). */
 function tablesPill(r, status) {
@@ -1291,9 +1293,13 @@ function renderMergedGroup(r) {
   const label = document.createElement('div');
   label.className = `merge-label ${statusOf(r)}${selected}`;
   Object.assign(label.style, boxStyle(main));
-  label.innerHTML = `${r.pinned ? pinMark() : ''}<span class="t-guest">${esc(r.name)}</span>
+  label.innerHTML = `<span class="t-guest">${esc(r.name)}</span>
     <span class="t-meta">${tableMeta(r, cap(r.tableIds))}</span>`;
   plan.append(label);
+  if (r.pinned) {
+    plan.insertAdjacentHTML('beforeend', pinBadge(` plan-badge${selected}`));
+    Object.assign(plan.lastElementChild.style, { left: `${main.x + main.w}px`, top: `${main.y}px` });
+  }
 }
 
 /** Voisinages et fusions manuelles (visibles en édition et pendant un glisser-déposer). */
@@ -1614,7 +1620,6 @@ function tableElement(t, res) {
   top.className = 'top';
   if (res && !grouped) {
     top.innerHTML = `<span class="t-tag">${esc(t.name)}</span>
-      ${res.pinned ? pinMark() : ''}
       <span class="t-guest">${esc(res.name)}</span>
       <span class="t-meta">${tableMeta(res, t.seats)}</span>`;
   } else if (grouped) {
@@ -1623,6 +1628,7 @@ function tableElement(t, res) {
     top.innerHTML = `<span class="t-name">${esc(t.name)}</span><span class="t-seats">${t.seats} pl.</span>`;
   }
   el.append(top);
+  if (res?.pinned && !grouped) el.insertAdjacentHTML('beforeend', pinBadge());
 
   if (state.editMode) {
     if (isPicked('table', t.id)) decoratePicked(el, t, 'table');
