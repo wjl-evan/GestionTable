@@ -208,7 +208,11 @@ kbd {
 
 /* ---------- Liste des réservations ---------- */
 
-.res-list { list-style: none; margin: 0; padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.res-list {
+  list-style: none; margin: 0; padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px;
+  /* Défilement au doigt : arrivé en bout de liste, on ne tire pas toute la page avec */
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+}
 .res-list .empty { color: var(--muted); text-align: center; padding: 40px 10px; line-height: 1.7; }
 .list-count { font-size: 12px; color: var(--muted); padding: 0 4px; }
 
@@ -395,7 +399,7 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
 .dt-actions .rc-btn { border-color: var(--line); justify-content: flex-start; min-width: 0; white-space: normal; text-align: left; line-height: 1.2; }
 .dt-actions .rc-btn.pinned { border-color: transparent; }
 @media (max-width: 700px) {
-  dialog.detail { margin: auto 0 0; width: 100%; max-width: 100%; border-radius: 18px 18px 0 0; border-bottom: 0; }
+  dialog.detail { margin: auto 0 var(--vv-bottom, 0px); width: 100%; max-width: 100%; border-radius: 18px 18px 0 0; border-bottom: 0; }
   .dt { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
   .dt-main .rc-btn, .dt-actions .rc-btn { height: 44px; font-size: 14.5px; }
   .dt-row { grid-template-columns: 96px 1fr; }
@@ -403,7 +407,7 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
 
 /* ---------- Inspecteur ---------- */
 
-.inspector-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.inspector-body { padding: 16px 20px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; }
 .section-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
 .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .preset {
@@ -932,7 +936,7 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 }
 
 .more-menu {
-  position: fixed; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 70;
+  position: fixed; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom) + var(--vv-bottom, 0px)); z-index: 70;
   display: flex; flex-direction: column; min-width: 230px; padding: 6px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg);
 }
@@ -944,7 +948,7 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 
 .sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(10, 10, 8, .38); animation: fade-in .2s; }
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
+  position: fixed; left: 0; right: 0; bottom: var(--vv-bottom, 0px); z-index: 61;
   max-height: 72dvh; overflow-y: auto; overscroll-behavior: contain;
   padding: 6px 14px calc(18px + env(safe-area-inset-bottom));
   background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow-lg);
@@ -1031,7 +1035,9 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 700px) {
   /* Page fixée à l'écran : seules la liste et le plan défilent, jamais la page entière */
   html, body { overflow: hidden; overscroll-behavior: none; }
-  body { position: fixed; inset: 0; height: auto; }
+  /* Hauteur = zone visible (calculée en JS), sinon 100dvh : la barre du bas reste au-dessus
+     de la barre du navigateur, même quand celle-ci est placée en bas de l'écran */
+  body { position: fixed; top: 0; left: 0; right: 0; bottom: auto; height: var(--app-h, 100dvh); }
 
   /* En-tête sur une ligne : date et service (le reste est dans la barre du bas) */
   .topbar {
@@ -1071,11 +1077,11 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
     background: var(--surface); border-top: 1px solid var(--line);
   }
 
-  .toasts { left: 12px; right: 12px; bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .toasts { left: 12px; right: 12px; bottom: calc(70px + env(safe-area-inset-bottom) + var(--vv-bottom, 0px)); }
   .toast { max-width: none; }
 
   /* Formulaire : les champs passent à la ligne au lieu de s'écraser */
-  dialog { max-height: 92dvh; overflow-y: auto; }
+  dialog { max-height: calc(var(--app-h, 100dvh) - 24px); overflow-y: auto; overscroll-behavior: contain; }
   dialog form { padding: 18px; }
   .row { flex-wrap: wrap; }
   dialog .row .field { flex: 1 1 40%; min-width: 0; }

@@ -365,8 +365,11 @@ function renderList() {
 
   renderFilters(all);
   $('#searchClear').hidden = !state.search;
-  els.resList.innerHTML = '';
   renderTimeStrip(list);
+  // La liste est reconstruite d'un coup (fragment) et garde sa position : une mise à jour
+  // (synchronisation, bouton « Arrivé »…) ne la fait pas sauter ni ne coupe un défilement en cours
+  const scroll = els.resList.scrollTop;
+  const frag = document.createDocumentFragment();
   if (!list.length) {
     els.resList.innerHTML = `<li class="empty">${emptyListMessage(all, byFilter)}</li>`;
     $('#showOtherService', els.resList)?.addEventListener('click', () => {
@@ -383,13 +386,13 @@ function renderList() {
     const note = document.createElement('li');
     note.className = 'archived-note';
     note.textContent = 'Service archivé : consultation seule. Les noms et téléphones sont effacés au bout de la durée de conservation (réglable dans « Modifier le plan »).';
-    els.resList.append(note);
+    frag.append(note);
   }
   if (state.search) {
     const count = document.createElement('li');
     count.className = 'list-count';
     count.textContent = `${list.length} résultat${list.length > 1 ? 's' : ''}`;
-    els.resList.append(count);
+    frag.append(count);
   }
 
   let currentTime = null;
@@ -397,10 +400,12 @@ function renderList() {
     // Nouvelle heure : en-tête du créneau (la liste est déjà triée par heure)
     if (r.time !== currentTime) {
       currentTime = r.time;
-      els.resList.append(timeHeader(r.time, list.filter((x) => x.time === r.time)));
+      frag.append(timeHeader(r.time, list.filter((x) => x.time === r.time)));
     }
-    els.resList.append(buildCard(r));
+    frag.append(buildCard(r));
   }
+  els.resList.replaceChildren(frag);
+  if (els.resList.scrollTop !== scroll) els.resList.scrollTop = scroll;
   syncTimeStrip();
 }
 
@@ -1534,7 +1539,8 @@ function endDrag() {
  * habituel (faire défiler la liste ou le plan).
  */
 
-const LONG_PRESS_MS = 260;
+// Assez long pour qu'un doigt posé un instant avant de faire défiler ne lance pas un glisser
+const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE = 8; // px de tremblement tolérés pendant l'appui
 let touchDrag = null; // { resId, ghost, source }
 let suppressClickUntil = 0;
@@ -1595,15 +1601,21 @@ function armTouchDrag(e, resId, source) {
     if (touchDrag) finishTouchDrag();
     cleanup();
   }
+  // La liste (ou le plan) défile : c'était un défilement, pas un appui long
+  function onScroll() {
+    if (!touchDrag) cleanup();
+  }
   function cleanup() {
     clearTimeout(timer);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onCancel);
+    window.removeEventListener('scroll', onScroll, true);
   }
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onCancel);
+  window.addEventListener('scroll', onScroll, { capture: true, passive: true });
 }
 
 /** Ce qui se trouve sous le doigt : une table du plan, ou la liste (pour retirer du plan). */
@@ -2180,6 +2192,24 @@ async function assign(resId, tableId) {
 /* ---------- Téléphone : deux vues (Réservations / Plan) ---------- */
 
 const phoneMQ = matchMedia('(max-width: 700px)');
+
+/**
+ * Hauteur réellement visible (sans les barres du navigateur, même placées en bas) :
+ * l'application s'y cale, pour que la barre de navigation ne passe jamais dessous.
+ */
+function fitToVisibleArea() {
+  const vv = window.visualViewport;
+  const h = vv?.height ?? window.innerHeight;
+  // Bande cachée en bas (barre du navigateur posée par-dessus la page) : les éléments
+  // collés en bas de l'écran (fiche, menu, messages) remontent d'autant
+  const hidden = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+  document.documentElement.style.setProperty('--app-h', `${Math.round(h)}px`);
+  document.documentElement.style.setProperty('--vv-bottom', `${Math.round(hidden)}px`);
+}
+fitToVisibleArea();
+window.visualViewport?.addEventListener('resize', fitToVisibleArea);
+window.addEventListener('resize', fitToVisibleArea);
+window.addEventListener('orientationchange', () => setTimeout(fitToVisibleArea, 300));
 const isPhone = () => phoneMQ.matches;
 
 /** Affiche la liste ou le plan (sur téléphone, un seul des deux tient à l'écran). */
@@ -2793,6 +2823,34 @@ const releaseTouch = (e) => {
 window.addEventListener('pointerup', releaseTouch);
 window.addEventListener('pointercancel', releaseTouch);
 
+/* Élan après un glisser du plan au doigt */
+let glideFrame = 0;
+const stopPlanGlide = () => cancelAnimationFrame(glideFrame);
+
+function glidePlan(recent) {
+  const now = performance.now();
+  const pts = recent.filter((p) => now - p.t < 100); // seulement le geste final
+  if (pts.length < 2) return;
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  const dt = Math.max(b.t - a.t, 1);
+  let vx = (b.x - a.x) / dt; // px par ms
+  let vy = (b.y - a.y) / dt;
+  if (Math.hypot(vx, vy) < 0.2) return; // doigt quasi arrêté : pas d'élan
+  let last = now;
+  const step = (t) => {
+    const dtf = Math.min(t - last, 32);
+    last = t;
+    els.planWrap.scrollLeft -= vx * dtf;
+    els.planWrap.scrollTop -= vy * dtf;
+    const decay = Math.pow(0.995, dtf); // ralentit en douceur
+    vx *= decay;
+    vy *= decay;
+    if (Math.hypot(vx, vy) > 0.02) glideFrame = requestAnimationFrame(step);
+  };
+  glideFrame = requestAnimationFrame(step);
+}
+
 // Fond du plan : rectangle de sélection en mode édition (clic gauche),
 // sinon glisser pour se déplacer dans le plan (clic gauche, molette enfoncée, ou un doigt — même sur une table)
 els.planWrap.addEventListener('pointerdown', (e) => {
@@ -2803,12 +2861,14 @@ els.planWrap.addEventListener('pointerdown', (e) => {
   if (pinch) return;
   if (state.editMode && e.button === 0 && !state.linking && !state.panMode) return startMarquee(e);
   const wrap = els.planWrap;
+  stopPlanGlide();
   const start = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
+  const recent = []; // dernières positions du doigt, pour l'élan au relâchement
   panned = false;
   if (e.button === 1) e.preventDefault(); // pas de défilement automatique du navigateur
 
   const onMove = (ev) => {
-    if (pinch || touchDrag) return; // deux doigts : zoom ; appui long : glisser une réservation
+    if (pinch || touchDrag) return (recent.length = 0); // deux doigts : zoom ; appui long : glisser une réservation
     const dx = ev.clientX - start.x;
     const dy = ev.clientY - start.y;
     if (!panned && Math.hypot(dx, dy) < 4) return;
@@ -2816,12 +2876,16 @@ els.planWrap.addEventListener('pointerdown', (e) => {
     wrap.classList.add('panning');
     wrap.scrollLeft = start.left - dx;
     wrap.scrollTop = start.top - dy;
+    recent.push({ x: ev.clientX, y: ev.clientY, t: performance.now() });
+    if (recent.length > 6) recent.shift();
   };
-  const onUp = () => {
+  const onUp = (ev) => {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onUp);
     wrap.classList.remove('panning');
+    // Au doigt : le plan continue sur sa lancée puis ralentit, comme un défilement normal
+    if (e.pointerType === 'touch' && ev.type === 'pointerup' && panned && !pinch) glidePlan(recent);
     setTimeout(() => (panned = false)); // après l'événement click qui suit
   };
   window.addEventListener('pointermove', onMove);
