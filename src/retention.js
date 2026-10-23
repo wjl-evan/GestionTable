@@ -35,8 +35,16 @@ export function retentionCutoffs({ archiveAfterDays, anonymizeAfterMonths }, now
 export const ANONYMOUS_NAME = 'Client anonymisé';
 
 /** Version anonymisée d'une réservation : plus rien qui identifie le client. */
+const PERSONAL = ['name', 'phone', 'notes', 'internalNote'];
+
 export function anonymize(r) {
-  return { ...r, name: ANONYMOUS_NAME, phone: '', notes: '', internalNote: '', anonymized: true };
+  // Historique : les anciennes valeurs personnelles sont effacées aussi (les autres changements restent)
+  const history = r.history?.map((h) => {
+    if (h.type !== 'edited') return h;
+    const changes = Object.fromEntries(Object.entries(h.changes).map(([k, v]) => [k, PERSONAL.includes(k) ? ['', ''] : v]));
+    return { ...h, changes };
+  });
+  return { ...r, name: ANONYMOUS_NAME, phone: '', notes: '', internalNote: '', anonymized: true, ...(history ? { history } : {}) };
 }
 
 /**

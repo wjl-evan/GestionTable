@@ -2,7 +2,8 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { getDb, persist, httpError } from '../store.js';
 import { archivedBetween, archivedReservations } from '../retention.js';
-import { autoAssign, capacityOf, findCombination, isActive, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
+import { autoAssign, capacityOf, findCombination, getServices, isActive, isCancelled, isServiceOpen, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
+import { assertServiceOpen, assertWithinHours, serviceExceptions, serviceName, setServiceDay } from '../services.js';
 
 const router = Router();
 
@@ -27,6 +28,36 @@ function validate(input, current = {}) {
   if (!DATE_RE.test(r.date || '')) throw httpError(400, 'Date invalide');
   if (!TIME_RE.test(r.time || '')) throw httpError(400, 'Heure invalide');
   return r;
+}
+
+/* ---------- Historique d'une réservation ----------
+ * r.history = [{ at, type, … }] : created { people, date, time } · edited { changes: { champ: [avant, après] } }
+ * · status { from, to } · cancelled · restored. Les tables attribuées ne sont pas notées.
+ */
+const TRACKED = ['name', 'people', 'date', 'time', 'phone', 'notes', 'internalNote'];
+const HISTORY_MAX = 100;
+
+function addHistory(r, entry) {
+  r.history ??= [];
+  r.history.push({ at: new Date().toISOString(), ...entry });
+  if (r.history.length > HISTORY_MAX) r.history.splice(0, r.history.length - HISTORY_MAX);
+}
+
+/** Champs modifiés entre deux versions : { people: [4, 6], time: ['20:00', '20:30'] }. */
+function changesBetween(before, after) {
+  const changes = {};
+  for (const k of TRACKED) {
+    const a = before[k] ?? '';
+    const b = after[k] ?? '';
+    if (a !== b) changes[k] = [a, b];
+  }
+  return changes;
+}
+
+/** Une réservation annulée ou partie ne se place plus sans être rétablie. */
+function assertUsable(r) {
+  if (isCancelled(r)) throw httpError(409, `La réservation de ${r.name} est annulée. Rétablissez-la d'abord.`);
+  if (!isActive(r)) throw httpError(409, `${r.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
 }
 
 function findReservation(id) {
@@ -213,7 +244,8 @@ function applyPinned(reservation, wanted, notices) {
 
 /**
  * Remplissage de chaque service sur une période (pour les points du calendrier) :
- * { 'AAAA-MM-JJ': { midi: { count, covers, ratio }, soir: { … } } }.
+ * { 'AAAA-MM-JJ': [{ id, label, open, count, covers, ratio }, …] } — un élément par service
+ * ouvert ce jour-là (ou qui a des réservations), dans l'ordre de la journée.
  * `ratio` = la plus forte des deux proportions : tables prises / tables du plan, couverts / places
  * (une réservation pas encore placée compte donc aussi). Les clients partis comptent : c'est
  * le remplissage du service, pas l'occupation à l'instant.
@@ -232,19 +264,29 @@ router.get('/summary', async (req, res) => {
   const seatCount = db.tables.reduce((s, t) => s + t.seats, 0) || 1;
   const days = {};
   for (const r of list) {
+    if (isCancelled(r)) continue;
     const day = (days[r.date] ??= {});
     const s = (day[serviceOf(r.time)] ??= { count: 0, covers: 0, tables: new Set() });
     s.count++;
     s.covers += r.people;
     for (const id of r.tableIds) s.tables.add(id);
   }
-  for (const day of Object.values(days)) {
-    for (const [service, s] of Object.entries(day)) {
-      const ratio = Math.max(s.tables.size / tableCount, s.covers / seatCount);
-      day[service] = { count: s.count, covers: s.covers, ratio: Math.min(ratio, 1) }; // 1 = complet
-    }
+  const exceptions = serviceExceptions();
+  const out = {};
+  for (let d = new Date(`${from}T12:00:00`); ; d.setDate(d.getDate() + 1)) {
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (date > to) break;
+    out[date] = getServices()
+      .map((svc) => {
+        const s = days[date]?.[svc.id];
+        const open = isServiceOpen(date, svc.id, exceptions);
+        if (!open && !s) return null;
+        const ratio = s ? Math.min(Math.max(s.tables.size / tableCount, s.covers / seatCount), 1) : 0; // 1 = complet
+        return { id: svc.id, label: svc.label, open, count: s?.count ?? 0, covers: s?.covers ?? 0, ratio };
+      })
+      .filter(Boolean);
   }
-  res.json(days);
+  res.json(out);
 });
 
 router.get('/', async (req, res) => {
@@ -270,6 +312,9 @@ router.post('/', async (req, res) => {
     status: 'expected',
     createdAt: new Date().toISOString(),
   });
+  // Service fermé ce jour-là : refusé, sauf « ouvrir ce service » (fait seulement si la réservation passe)
+  const openIt = assertServiceOpen(r.date, r.time, req.body.allowClosed);
+  assertWithinHours(r.time, req.body.allowLate); // heure dans les horaires du service
   // Tables choisies dans le formulaire : vérifiées avant d'enregistrer quoi que ce soit
   const chosen = resolveTableInput(req.body.tables);
   if (chosen.length) {
@@ -284,12 +329,14 @@ router.post('/', async (req, res) => {
     if (!placement) {
       throw httpError(
         409,
-        `Aucune table libre pour ${r.people} personne${r.people > 1 ? 's' : ''} au service du ${serviceOf(r.time)} du ${r.date.split('-').reverse().join('/')}.`,
+        `Aucune table libre pour ${r.people} personne${r.people > 1 ? 's' : ''} pour ${serviceName(serviceOf(r.time))} du ${r.date.split('-').reverse().join('/')}.`,
         'no_table'
       );
     }
   }
 
+  if (openIt) setServiceDay(r.date, openIt, true);
+  addHistory(r, { type: 'created', people: r.people, date: r.date, time: r.time });
   getDb().reservations.push(r);
   const notices = chosen.length
     ? placeOnChosenTables(r, chosen)
@@ -308,6 +355,9 @@ router.put('/:id', async (req, res) => {
   const sameSet = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
   const chosen = req.body.tables === undefined ? null : resolveTableInput(req.body.tables);
   const changeTables = chosen !== null && !sameSet(chosen, current.tableIds);
+  const changesService = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
+  const openIt = changesService ? assertServiceOpen(next.date, next.time, req.body.allowClosed) : null;
+  if (next.time !== current.time) assertWithinHours(next.time, req.body.allowLate);
   if (changeTables && chosen.length) {
     assertTablesFreeable(next, chosen);
     assertBigEnough(next, chosen, req.body.allowTight);
@@ -318,7 +368,10 @@ router.put('/:id', async (req, res) => {
   // (sauf regroupement choisi à la main ou réservation fixée : on a déjà accepté de se serrer)
   const moved = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
   const tooSmall = !current.manualGroup && !current.pinned && capacityOf(db.tables, next.tableIds, db.groups) < next.people;
+  if (openIt) setServiceDay(next.date, openIt, true);
+  const changes = changesBetween(current, next);
   Object.assign(current, next);
+  if (Object.keys(changes).length) addHistory(current, { type: 'edited', changes });
   let notices = [];
   if (changeTables && chosen.length) {
     notices = placeOnChosenTables(current, chosen);
@@ -329,6 +382,28 @@ router.put('/:id', async (req, res) => {
   applyPinned(current, req.body.pinned === undefined ? undefined : Boolean(req.body.pinned), notices);
   await persist();
   res.json({ ...current, notices });
+});
+
+/** Annule : la réservation reste (catégorie « Annulées », historique) mais libère ses tables et ne compte plus. */
+router.post('/:id/cancel', async (req, res) => {
+  const r = findReservation(req.params.id);
+  if (isCancelled(r)) throw httpError(409, 'Réservation déjà annulée.');
+  setTables(r, []);
+  r.cancelledAt = new Date().toISOString();
+  addHistory(r, { type: 'cancelled' });
+  await persist();
+  res.json(r);
+});
+
+/** Rétablit une réservation annulée ; une table libre lui est cherchée tout de suite. */
+router.post('/:id/uncancel', async (req, res) => {
+  const r = findReservation(req.params.id);
+  if (!isCancelled(r)) throw httpError(409, 'Cette réservation n’est pas annulée.');
+  delete r.cancelledAt;
+  addHistory(r, { type: 'restored' });
+  autoPlace(r);
+  await persist();
+  res.json(r);
 });
 
 router.delete('/:id', async (req, res) => {
@@ -350,7 +425,7 @@ router.post('/:id/assign', async (req, res) => {
   assertNotPinned(reservation);
   const table = db.tables.find((t) => t.id === req.body.tableId);
   if (!table) throw httpError(404, 'Table introuvable');
-  if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
+  assertUsable(reservation);
 
   const busy = busyTables(reservation);
   if (busy.has(table.id)) throw httpError(409, `${table.name} est déjà occupée sur ce service.`);
@@ -376,7 +451,7 @@ router.post('/:id/assign', async (req, res) => {
 router.post('/:id/assign-manual', async (req, res) => {
   const db = getDb();
   const reservation = findReservation(req.params.id);
-  if (!isActive(reservation)) throw httpError(409, `${reservation.name} est déjà parti·e. Rétablissez la réservation d'abord.`);
+  assertUsable(reservation);
   assertNotPinned(reservation);
 
   const tableIds =[...new Set(Array.isArray(req.body.tableIds) ? req.body.tableIds : [])];
@@ -397,7 +472,7 @@ router.post('/:id/assign-manual', async (req, res) => {
 router.post('/auto-assign', async (req, res) => {
   const { date, service } = req.body;
   if (!DATE_RE.test(date || '')) throw httpError(400, 'Date invalide');
-  if (!['midi', 'soir'].includes(service)) throw httpError(400, 'Service invalide');
+  if (!getServices().some((s) => s.id === service)) throw httpError(400, 'Service invalide');
 
   const db = getDb();
   const sameService = db.reservations.filter((r) => r.date === date && serviceOf(r.time) === service);
@@ -426,6 +501,8 @@ router.post('/:id/status', async (req, res) => {
   const reservation = findReservation(req.params.id);
   const { status } = req.body;
   if (!STATUSES.includes(status)) throw httpError(400, 'Statut invalide');
+  if (isCancelled(reservation)) throw httpError(409, `La réservation de ${reservation.name} est annulée. Rétablissez-la d'abord.`);
+  const from = statusOf(reservation);
 
   let conflict = false;
   if (!isActive(reservation) && status !== 'left' && reservation.tableIds.length) {
@@ -442,6 +519,7 @@ router.post('/:id/status', async (req, res) => {
   if (status === 'left') reservation.leftAt = now;
   else delete reservation.leftAt;
   reservation.status = status;
+  if (from !== status) addHistory(reservation, { type: 'status', from, to: status });
 
   await persist();
   res.json({ reservation, conflict });
@@ -473,7 +551,7 @@ router.post('/:id/pin', async (req, res) => {
 router.post('/unassign-all', async (req, res) => {
   const { date, service } = req.body;
   if (!DATE_RE.test(date || '')) throw httpError(400, 'Date invalide');
-  if (!['midi', 'soir'].includes(service)) throw httpError(400, 'Service invalide');
+  if (!getServices().some((s) => s.id === service)) throw httpError(400, 'Service invalide');
 
   const sameService = getDb().reservations.filter((r) => r.date === date && serviceOf(r.time) === service);
   const cleared = sameService.filter((r) => r.tableIds.length && !r.pinned && statusOf(r) === 'expected');

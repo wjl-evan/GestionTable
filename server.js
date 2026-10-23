@@ -9,6 +9,8 @@ import planRouter from './src/routes/plan.js';
 import tablesRouter from './src/routes/tables.js';
 import reservationsRouter from './src/routes/reservations.js';
 import settingsRouter from './src/routes/settings.js';
+import servicesRouter from './src/routes/services.js';
+import { loadServices } from './src/services.js';
 import { scheduleRetention } from './src/retention.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +44,7 @@ app.use('/api/plan', planRouter);
 app.use('/api/tables', tablesRouter);
 app.use('/api/reservations', reservationsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/services', servicesRouter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }));
 
@@ -60,6 +63,7 @@ function lanAddresses() {
 }
 
 await initStore();
+loadServices(); // services (matin, midi, soir…) des réglages
 scheduleBackups();
 scheduleRetention(); // archivage + anonymisation des anciennes réservations, une fois par jour
 app.listen(PORT, () => {

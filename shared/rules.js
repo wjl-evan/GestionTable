@@ -16,11 +16,55 @@ export const MAX_MERGE = 4;
 /** Statuts d'une réservation. Une réservation "partie" libère ses tables pour le reste du service. */
 export const STATUSES = ['expected', 'arrived', 'left'];
 export const statusOf = (r) => r.status || 'expected';
-export const isActive = (r) => statusOf(r) !== 'left';
+/** Réservation annulée : gardée (historique, catégorie « Annulées »), mais elle ne compte plus nulle part. */
+export const isCancelled = (r) => Boolean(r.cancelledAt);
+export const isActive = (r) => statusOf(r) !== 'left' && !isCancelled(r);
+
+/* ---------- Services (matin, midi, soir…) ----------
+ * Un service = { id, label, start: 'HH:MM', end: 'HH:MM', days: [0..6] (0 = lundi), time: 'HH:MM' (heure proposée) }.
+ * Ils découpent la journée : une réservation appartient au dernier service commencé à son heure.
+ * start / end : première et dernière heure de réservation acceptées pour ce service.
+ * `days` = jours d'ouverture habituels ; une date peut faire exception (service fermé ou ouvert en plus).
+ */
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+export const DEFAULT_SERVICES = [
+  { id: 'matin', label: 'Matin', start: '07:00', end: '10:30', time: '08:30', days: [] }, // fermé d'habitude
+  { id: 'midi', label: 'Midi', start: '11:00', end: '14:30', time: '12:30', days: ALL_DAYS },
+  { id: 'soir', label: 'Soir', start: '16:00', end: '22:30', time: '20:00', days: ALL_DAYS },
+];
+
+let services = DEFAULT_SERVICES;
+/** Services utilisés par serviceOf (le serveur et le navigateur y mettent ceux des réglages). */
+export function setServices(list) {
+  services = (list?.length ? [...list] : DEFAULT_SERVICES).sort((a, b) => a.start.localeCompare(b.start));
+}
+export const getServices = () => services;
+export const serviceById = (id) => services.find((s) => s.id === id);
 
 export function serviceOf(time) {
-  return time < '16:00' ? 'midi' : 'soir';
+  let current = services[0];
+  for (const s of services) if (time >= s.start) current = s;
+  return current.id;
 }
+
+/** L'heure est-elle dans les horaires de réservation de son service (de start à end) ? */
+export function withinHours(time) {
+  const s = serviceById(serviceOf(time));
+  return Boolean(s) && time >= s.start && (!s.end || time <= s.end);
+}
+
+/** Jour de la semaine d'une date AAAA-MM-JJ (0 = lundi). */
+export const weekdayOf = (date) => (new Date(`${date}T12:00:00`).getDay() + 6) % 7;
+
+/** Le service est-il ouvert ce jour-là ? Exception de la date d'abord, sinon les jours habituels. */
+export function isServiceOpen(date, id, exceptions = {}) {
+  const forced = exceptions[date]?.[id];
+  if (forced !== undefined) return forced;
+  return Boolean(serviceById(id)?.days.includes(weekdayOf(date)));
+}
+
+/** Services ouverts une date donnée, dans l'ordre de la journée. */
+export const openServices = (date, exceptions = {}) => services.filter((s) => isServiceOpen(date, s.id, exceptions));
 
 export function localDate(d = new Date()) {
   const z = (n) => String(n).padStart(2, '0');

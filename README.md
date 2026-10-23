@@ -80,6 +80,17 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   donne en priorité les tables **peu polyvalentes** (isolées, sans fusion) et garde libres celles qui
   permettent de grandes tables (ex. T1 + T2 = 10 n'est pas cassée pour un groupe de 4). Si une réservation
   resterait sans table, il recommence en anticipant : chaque choix est jugé sur ce qu'il laisse pour la suite.
+- **Historique** (en bas de la fiche d'une réservation) : création, chaque modification (nom, personnes, date, heure,
+  téléphone, notes : avant → après), arrivée / départ, annulation, rétablissement. Les changements de tables ne sont
+  pas notés. À l'anonymisation, les anciens noms / téléphones / notes de l'historique sont effacés aussi.
+- **Annuler une réservation** (fiche ou formulaire) : elle n'est pas supprimée ; elle libère ses tables, ne compte plus
+  nulle part et n'apparaît que dans la catégorie « Annulées », d'où on peut la rétablir.
+- **Services** (« Modifier le plan » → *Services*) : Matin, Midi, Soir… avec leurs horaires de réservation (début →
+  dernière réservation acceptée ; en dehors, on demande confirmation) et leurs jours
+  d'ouverture habituels ; on peut en ajouter (ex. Brunch le dimanche) ou en supprimer. Une réservation va au service
+  commencé le plus récemment à son heure. Pour un jour précis, le bouton à côté des services (sur téléphone : « Plus »)
+  ouvre un service exceptionnellement ou en ferme un. Réserver dans un service fermé est refusé, avec « Ouvrir ce
+  service et enregistrer ». Le calendrier montre un point par service ouvert.
 - **Placement dès la création** : chaque nouvelle réservation (ou réservation changée de service) reçoit
   automatiquement une table libre ; s'il n'y en a pas, elle reste « à placer ».
 - **Réservation fixée** (bouton « Fixer » sur la carte, cadenas violet sur la carte et le plan) : elle ne peut
@@ -156,7 +167,10 @@ changements aux appareils connectés.
 | POST | `/api/reservations/:id/assign` | `{ tableId }` — place la réservation (fusion auto si besoin) |
 | POST | `/api/reservations/:id/assign-manual` | `{ tableIds }` — place sur des tables choisies (pour ce service, même si trop petites) |
 | POST | `/api/reservations/:id/unassign` | Retire la réservation du plan |
+| POST | `/api/reservations/:id/cancel` · `/uncancel` | Annule (réservation gardée) / rétablit |
 | POST | `/api/reservations/:id/pin` | `{ pinned }` — fixe la réservation à ses tables (ou la libère) |
 | POST | `/api/reservations/unassign-all` | `{ date, service }` — retire du plan les réservations attendues non fixées |
 | POST | `/api/reservations/:id/status` | `{ status: 'expected' \| 'arrived' \| 'left' }` — arrivée / départ |
 | GET / PUT | `/api/settings` | `{ archiveAfterDays, anonymizeAfterMonths }` — conservation des données, appliquée aussitôt |
+| GET / PUT | `/api/services` | Services `{ services: [{ id, label, start, end, days }] }` et exceptions par date |
+| PUT | `/api/services/day/:date` | `{ id, open: true | false | null }` — ouvrir / fermer un service ce jour-là |

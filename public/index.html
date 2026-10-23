@@ -42,9 +42,12 @@
       </div>
       <!-- Ordinateur / tablette : les statistiques du service viennent ici (gain de place pour la liste) -->
       <div class="top-stats" id="topStats"></div>
-      <div class="segmented" id="service" role="tablist" aria-label="Service">
-        <button data-value="midi">Midi</button>
-        <button data-value="soir">Soir</button>
+      <!-- Services du jour affiché (ouverts, ou fermés mais avec des réservations) : remplis par l'application -->
+      <div class="service-ctl">
+        <div class="segmented" id="service" role="tablist" aria-label="Service"></div>
+        <button type="button" class="icon-btn small" id="dayServicesBtn" aria-label="Services du jour" title="Ouvrir ou fermer un service ce jour-là">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
       </div>
     </div>
 
@@ -149,12 +152,16 @@
   </nav>
   <div class="more-menu" id="moreMenu" hidden role="menu">
     <button type="button" role="menuitem" data-more="today">Aller à aujourd’hui</button>
+    <button type="button" role="menuitem" data-more="services">Services du jour…</button>
     <button type="button" role="menuitem" data-more="edit">Modifier le plan</button>
     <button type="button" role="menuitem" data-more="lock">Verrouiller cet appareil</button>
   </div>
 
   <!-- Fiche d'une réservation (toucher une carte) : détails et actions -->
   <dialog id="resDetail" class="detail" aria-labelledby="detailName"></dialog>
+
+  <!-- Services d'une date : ouvrir / fermer pour ce jour-là -->
+  <dialog id="dayServices" class="detail" aria-labelledby="dayServicesTitle"></dialog>
 
   <dialog id="resDialog">
     <form id="resForm" novalidate>
@@ -177,6 +184,7 @@
           <span>Heure</span>
           <input type="hidden" name="time" id="resTime" />
           <button type="button" class="picker-btn" data-picker="time" data-for="resTime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span></span></button>
+          <em class="time-hint" id="timeHint"></em>
         </div>
       </div>
       <div class="row table-row">
@@ -212,7 +220,7 @@
         </div>
       </div>
       <div class="dialog-actions">
-        <button type="button" class="btn danger ghost" id="deleteRes">Supprimer</button>
+        <button type="button" class="btn danger ghost" id="deleteRes">Annuler la réservation</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="cancelRes">Annuler</button>
         <button type="submit" class="btn primary">Enregistrer</button>

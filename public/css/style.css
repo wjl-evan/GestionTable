@@ -97,6 +97,39 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .actions { display: flex; gap: 8px; }
 
 .date-nav { display: flex; align-items: center; gap: 4px; }
+/* Services du jour : boutons générés + réglage du jour */
+.service-ctl { display: flex; align-items: center; gap: 4px; flex: none; }
+.segmented button.closed { text-decoration: line-through; opacity: .65; }
+.seg-closed { display: inline-flex; align-items: center; padding: 7px 14px; font-size: 13px; color: var(--muted); }
+.ds-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
+.ds-row { display: flex; align-items: center; gap: 12px; padding: 12px; cursor: pointer; }
+.ds-row + .ds-row { border-top: 1px solid var(--line); }
+.ds-row.off .ds-info strong { color: var(--muted); }
+.ds-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ds-info strong { font-size: 15px; }
+.ds-info .muted { font-size: 12.5px; }
+.ds-exc { font-size: 12px; font-weight: 600; color: var(--warn); }
+.ds-row .switch { flex: none; }
+.ds-actions { grid-template-columns: 1fr; }
+
+/* Réglages : services */
+.services-form { gap: 10px; }
+.svc-row { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.svc-row .row { align-items: flex-end; }
+.svc-start { flex: 0 0 104px; }
+.time-hint { font-style: normal; font-size: 11.5px; color: var(--muted); min-height: 1em; }
+.time-hint.warn { color: var(--warn); font-weight: 600; }
+.svc-remove { flex: none; align-self: flex-end; }
+.svc-days { display: flex; gap: 4px; }
+.svc-day {
+  flex: 1; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.svc-day.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.svc-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.svc-status { font-size: 12px; color: var(--accent); text-align: right; flex: 1; min-width: 0; }
+.svc-status.warn { color: var(--danger); }
+
 /* Bouton qui affiche une date / une heure et ouvre le sélecteur maison */
 .picker-btn {
   display: inline-flex; align-items: center; gap: 8px; min-width: 0;
@@ -138,6 +171,10 @@ dialog.picker::backdrop { background: rgba(20, 20, 15, .35); backdrop-filter: no
 /* Jours des mois voisins (pour garder 6 semaines) : plus pâles, toujours cliquables */
 .pk-days button.out { color: var(--muted); opacity: .55; }
 .pk-days button.out:hover { opacity: 1; }
+/* Jour sans aucun service ouvert */
+.pk-days button.closed .pk-num { text-decoration: line-through; color: var(--muted); }
+/* Service fermé ce jour-là mais avec des réservations : point creux */
+.pk-dots i.shut { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .pk-days button:hover { background: var(--surface-2); }
 .pk-days button.today { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); font-weight: 600; }
 .pk-days button.selected { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -386,6 +423,27 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 .res-card.status-arrived.placed:hover, .res-card.status-left:hover,
 .res-card.status-arrived.placed.selected, .res-card.status-left.selected { opacity: 1; }
 .res-card.status-left .rc-name { text-decoration: line-through; text-decoration-color: var(--muted); }
+/* Annulée : comme une réservation partie, en rouge discret */
+.res-card.status-cancelled { background: transparent; border-style: dashed; opacity: .6; }
+.res-card.status-cancelled .rc-name { text-decoration: line-through; text-decoration-color: var(--danger); }
+.rc-status.cancelled { color: var(--danger); }
+.rc-status.cancelled .rc-dot { background: var(--danger); }
+
+/* Historique dans la fiche */
+.dt-history { border-top: 1px solid var(--line); padding-top: 10px; }
+.dt-history summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); list-style-position: inside; }
+.dt-history ol { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.dt-history li { position: relative; display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
+.dt-history li::before {
+  content: ''; position: absolute; left: -17px; top: 5px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--line-strong);
+}
+.dt-history li.hist-created::before { background: var(--resv); }
+.dt-history li.hist-status::before { background: var(--accent); }
+.dt-history li.hist-cancelled::before { background: var(--danger); }
+.dt-history li.hist-restored::before { background: var(--accent); }
+.dt-history time { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rc-btn.danger { color: var(--danger); }
 
 /* Deux lignes. Ligne 1 : nom · personnes · action principale ; ligne 2 : statut, table, notes */
 .rc-head {
@@ -1221,7 +1279,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   body.editing #lockBtn { display: none; }
   #today { display: none; } /* « Aujourd'hui » est dans le calendrier */
   .controls { justify-content: flex-start; gap: 12px; min-width: 0; }
-  .controls .segmented { order: 1; flex: none; }
+  .controls .service-ctl { order: 1; flex: none; }
   .top-stats { order: 2; flex: 1 1 auto; justify-content: flex-end; }
 
   .plan-new {
@@ -1263,6 +1321,10 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .date-nav { gap: 2px; min-width: 0; }
   .date-nav .picker-btn { width: 132px; min-width: 0; padding: 0 8px; gap: 6px; }
   .segmented button { padding: 7px 12px; }
+  /* Téléphone : « Services du jour » est dans le menu « Plus » ; boutons de service plus serrés */
+  #dayServicesBtn { display: none; }
+  .date-nav .picker-btn svg { display: none; } /* la place pour la date entière */
+  .segmented button { padding: 7px 9px; font-size: 13px; }
 
   /* minmax(0, 1fr) : la colonne garde la largeur de l'écran ; ce qui est plus large défile à l'intérieur */
   .layout { grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }

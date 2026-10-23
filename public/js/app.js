@@ -2,7 +2,7 @@ import { api, auth, AuthError, CLIENT_ID, setAuthHandler } from './api.js';
 import { initPickers, refreshPickers } from './pickers.js';
 import {
   areAdjacent, buildGraph, capacityOf, findCombination, groupOf, isActive, serviceOf, setKey, spanningEdges, statusOf,
-  localDate,
+  localDate, getServices, serviceById, isServiceOpen, setServices, isCancelled,
 } from '/shared/rules.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -16,7 +16,8 @@ const state = {
   groups: [], // fusions manuelles : { id, tableIds, capacity }
   reservations: [],
   date: localDate(),
-  service: new Date().getHours() < 16 ? 'midi' : 'soir',
+  service: serviceOf(new Date().toTimeString().slice(0, 5)), // corrigé une fois les services chargés
+  serviceExceptions: {}, // { date: { serviceId: true (ouvert) | false (fermé) } }
   filter: 'all',
   editMode: false,
   selectedRes: null,
@@ -98,9 +99,16 @@ const tableNode = (id) => els.plan.querySelector(`.table[data-id="${id}"]`);
 const byTimeThenName = (a, b) =>
   a.time.localeCompare(b.time) || a.name.localeCompare(b.name, 'fr', { sensitivity: 'base', numeric: true });
 
+/** Réservations du service affiché (sans les annulées, qui ne comptent nulle part). */
 function visibleReservations() {
-  return state.reservations.filter((r) => serviceOf(r.time) === state.service).sort(byTimeThenName);
+  return state.reservations.filter((r) => serviceOf(r.time) === state.service && !isCancelled(r)).sort(byTimeThenName);
 }
+/** Réservations annulées du service affiché (catégorie « Annulées »). */
+const cancelledReservations = () =>
+  state.reservations.filter((r) => serviceOf(r.time) === state.service && isCancelled(r)).sort(byTimeThenName);
+
+/** État affiché : celui de la réservation, ou « annulée ». */
+const displayStatus = (r) => (isCancelled(r) ? 'cancelled' : statusOf(r));
 
 /* ---------- Recherche ---------- */
 
@@ -140,7 +148,12 @@ const FILTERS = [
   { id: 'expected', label: 'Attendues', test: (r) => statusOf(r) === 'expected' },
   { id: 'arrived', label: 'En salle', test: (r) => statusOf(r) === 'arrived' },
   { id: 'left', label: 'Parties', test: (r) => statusOf(r) === 'left' },
+  // Les annulées ne sont que dans leur catégorie (liste à part, voir listForFilter)
+  { id: 'cancelled', label: 'Annulées', test: isCancelled },
 ];
+
+/** Liste de base d'une catégorie : les réservations du service, ou les annulées. */
+const listForFilter = (f) => (f.id === 'cancelled' ? cancelledReservations() : visibleReservations());
 const currentFilter = () => FILTERS.find((f) => f.id === state.filter) ?? FILTERS[0];
 
 /** Met en évidence la partie du nom qui correspond à la recherche. */
@@ -201,9 +214,127 @@ function nextTableName() {
 /* ---------- Chargement ---------- */
 
 async function loadPlan() {
-  const { room, zones, tables, groups } = await api.plan();
+  const { room, zones, tables, groups, services, serviceExceptions } = await api.plan();
   Object.assign(state, { room, zones, tables, groups });
+  applyServices({ services, serviceExceptions });
 }
+
+/* ---------- Services (matin, midi, soir…) ---------- */
+
+/** Services et exceptions reçus du serveur → règles partagées + état. */
+function applyServices({ services, serviceExceptions }) {
+  setServices(services);
+  state.serviceExceptions = serviceExceptions ?? {};
+}
+
+const isOpen = (id, date = state.date) => isServiceOpen(date, id, state.serviceExceptions);
+const serviceLabel = (id) => serviceById(id)?.label ?? id;
+
+/** Services proposés pour le jour affiché : ouverts, plus ceux fermés qui ont quand même des réservations. */
+function dayServices() {
+  const booked = new Set(state.reservations.filter((r) => !isCancelled(r)).map((r) => serviceOf(r.time)));
+  return getServices().filter((sv) => isOpen(sv.id) || booked.has(sv.id));
+}
+
+/** Service affiché valable ce jour-là ; sinon celui de l'heure actuelle, ou le premier ouvert. */
+function ensureService() {
+  const list = dayServices();
+  if (list.some((sv) => sv.id === state.service)) return;
+  const now = serviceOf(new Date().toTimeString().slice(0, 5));
+  state.service = (list.find((sv) => sv.id === now) ?? list[0] ?? serviceById(now) ?? getServices()[0]).id;
+}
+
+/** Ouvre / ferme un service pour la date affichée (`open` null : comme d'habitude). */
+async function setServiceDay(id, open) {
+  try {
+    applyServices(await api.setServiceDay(state.date, id, open));
+    if (open) state.service = id;
+    const label = serviceLabel(id);
+    toast(open === null ? `${label} : horaires habituels` : open ? `${label} ouvert ce jour-là` : `${label} fermé ce jour-là`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  render();
+  renderDayServices();
+}
+
+/* « Services du jour » : ouvrir un service exceptionnellement, en fermer un ce jour-là */
+const dayServicesEl = $('#dayServices');
+const DAY_NAMES = ['lundis', 'mardis', 'mercredis', 'jeudis', 'vendredis', 'samedis', 'dimanches'];
+
+/** « tous les jours », « du lundi au vendredi », « les samedis et dimanches », « jamais ». */
+function usualDays(days) {
+  if (!days.length) return 'fermé d’habitude';
+  if (days.length === 7) return 'tous les jours';
+  return `les ${days.map((d) => DAY_NAMES[d]).join(', ').replace(/, ([^,]*)$/, ' et $1')}`;
+}
+
+function renderDayServices() {
+  if (!dayServicesEl.open) return;
+  const exceptions = state.serviceExceptions[state.date] ?? {};
+  const booked = (id) => state.reservations.filter((r) => serviceOf(r.time) === id && !isCancelled(r)).length;
+  const rows = getServices().map((sv) => {
+    const open = isOpen(sv.id);
+    const changed = sv.id in exceptions;
+    const n = booked(sv.id);
+    return `<label class="ds-row${open ? '' : ' off'}">
+      <span class="ds-info">
+        <strong>${esc(sv.label)}</strong>
+        <span class="muted">${esc(sv.start)} – ${esc(sv.end ?? '')} · ${esc(usualDays(sv.days))}${n ? ` · ${n} réservation${n > 1 ? 's' : ''}` : ''}</span>
+        ${changed ? `<span class="ds-exc">${open ? 'Ouvert exceptionnellement' : 'Fermé exceptionnellement'}</span>` : ''}
+      </span>
+      <span class="switch"><input type="checkbox" data-svc="${sv.id}" ${open ? 'checked' : ''} /><span></span></span>
+    </label>`;
+  });
+  const anyException = Object.keys(exceptions).length > 0;
+  dayServicesEl.innerHTML = `
+    <div class="dt">
+      <header class="dt-head">
+        <div class="dt-title">
+          <h2 id="dayServicesTitle">Services du ${esc(new Date(`${state.date}T12:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }))}</h2>
+          <span class="muted">Ouvrir ou fermer un service pour ce jour seulement</span>
+        </div>
+        <span></span>
+        <button type="button" class="icon-btn" data-ds="close" aria-label="Fermer">✕</button>
+      </header>
+      <div class="ds-list">${rows.join('')}</div>
+      <div class="dt-actions ds-actions">
+        ${anyException ? '<button type="button" class="rc-btn" data-ds="reset">Revenir aux horaires habituels</button>' : ''}
+        <button type="button" class="rc-btn" data-ds="manage">Gérer les services…</button>
+      </div>
+    </div>`;
+}
+
+function openDayServices() {
+  if (!dayServicesEl.open) dayServicesEl.showModal();
+  renderDayServices();
+}
+
+$('#dayServicesBtn').addEventListener('click', openDayServices);
+dayServicesEl.addEventListener('click', async (e) => {
+  if (e.target === dayServicesEl || e.target.closest('[data-ds="close"]')) return dayServicesEl.close();
+  if (e.target.closest('[data-ds="manage"]')) {
+    dayServicesEl.close();
+    if (!state.editMode) $('#editToggle').click();
+    requestAnimationFrame(() => $('#servicesForm', els.inspector)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    return;
+  }
+  if (e.target.closest('[data-ds="reset"]')) {
+    for (const id of Object.keys(state.serviceExceptions[state.date] ?? {})) await setServiceDay(id, null);
+  }
+});
+dayServicesEl.addEventListener('change', (e) => {
+  const input = e.target.closest('[data-svc]');
+  if (!input) return;
+  const id = input.dataset.svc;
+  const n = state.reservations.filter((r) => serviceOf(r.time) === id && isActive(r)).length;
+  // Fermer un service qui a des réservations : elles restent, mais on prévient
+  if (!input.checked && n && !confirm(`${n} réservation${n > 1 ? 's sont prévues' : ' est prévue'} à ce service. Elles restent enregistrées, mais le service sera marqué fermé. Continuer ?`)) {
+    input.checked = true;
+    return;
+  }
+  setServiceDay(id, input.checked);
+});
 
 async function loadReservations() {
   state.reservations = await api.reservations(state.date);
@@ -212,6 +343,7 @@ async function loadReservations() {
 /* ---------- Rendu ---------- */
 
 function render() {
+  ensureService();
   renderControls();
   renderStats();
   if (state.editMode) renderInspector();
@@ -227,9 +359,16 @@ function render() {
 function renderControls() {
   els.date.value = state.date;
   refreshPickers($('.date-nav'));
-  for (const b of document.querySelectorAll('#service button')) {
-    b.classList.toggle('active', b.dataset.value === state.service);
-  }
+  // Boutons des services du jour (barré : fermé ce jour-là mais avec des réservations)
+  const list = dayServices();
+  const buttons = list.length
+    ? list.map((sv) => {
+        const closed = !isOpen(sv.id);
+        return `<button type="button" data-value="${sv.id}" class="${sv.id === state.service ? 'active' : ''}${closed ? ' closed' : ''}"${
+          closed ? ' title="Fermé ce jour-là"' : ''}>${esc(sv.label)}</button>`;
+      }).join('')
+    : '<span class="seg-closed" title="Aucun service ouvert ce jour-là">Fermé</span>';
+  if ($('#service').innerHTML !== buttons) $('#service').innerHTML = buttons;
   const toggle = $('#editToggle');
   toggle.textContent = state.editMode ? 'Terminer' : 'Modifier le plan';
   toggle.classList.toggle('active', state.editMode);
@@ -267,7 +406,7 @@ function renderStats() {
     </div>`;
 }
 
-const STATUS_LABEL = { expected: 'Attendu', arrived: 'Arrivé', left: 'Parti' };
+const STATUS_LABEL = { expected: 'Attendu', arrived: 'Arrivé', left: 'Parti', cancelled: 'Annulée' };
 
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>';
 
@@ -311,6 +450,7 @@ const actionBtn = (action, icon, label, title, cls = '') =>
 
 /** Action principale selon l'avancement du service (sur la carte et dans la fiche). */
 function mainActionHtml(r, status) {
+  if (status === 'cancelled') return actionBtn('uncancel', ICONS.undo, 'Rétablir', 'Rétablir la réservation (une table libre lui sera cherchée)');
   if (status === 'expected') return actionBtn('arrive', ICONS.check, 'Arrivé', 'Les clients sont arrivés', 'primary');
   if (status === 'left') return actionBtn('restore', ICONS.undo, 'Rétablir', 'Erreur ou client revenu : la réservation reprend ses tables si elles sont libres');
   if (r.tableIds.length) return actionBtn('leave', ICONS.door, 'Libérer', 'Les clients sont partis : la table redevient libre', 'primary');
@@ -331,14 +471,14 @@ function noteEditorHtml(r) {
 
 function cardHtml(r) {
   const placed = r.tableIds.length > 0;
-  const status = statusOf(r);
+  const status = displayStatus(r);
   const statusTime = status === 'arrived' ? hhmm(r.arrivedAt) : status === 'left' ? hhmm(r.leftAt) : '';
   // Statut : petit point de couleur + libellé. Arrivé : un ↶ juste à côté annule une arrivée cochée par erreur.
   const statusTag = `<span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${
     status === 'arrived' ? `<button type="button" class="rc-undo" data-action="unarrive" title="Annuler l’arrivée">${ICONS.undo}</button>` : ''
   }</span>`;
   // À placer : orange ; rouge si les clients sont déjà là sans table
-  const todo = status === 'left' ? '' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
+  const todo = status === 'left' || status === 'cancelled' ? '' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
 
   // Ligne 1 : nom, nombre de personnes, action principale. Ligne 2 : statut, table. Puis les notes, s'il y en a.
   return `
@@ -367,12 +507,12 @@ async function saveInternalNote(r, text) {
 }
 
 function renderList() {
-  const all = visibleReservations();
   const filter = currentFilter();
+  const all = listForFilter(filter);
   const byFilter = all.filter(filter.test);
   const list = byFilter.filter((r) => matchesSearch(r, state.search));
 
-  renderFilters(all);
+  renderFilters();
   $('#searchClear').hidden = !state.search;
   renderTimeStrip(list);
   // La liste est reconstruite d'un coup (fragment) et garde sa position : une mise à jour
@@ -381,10 +521,12 @@ function renderList() {
   const frag = document.createDocumentFragment();
   if (!list.length) {
     els.resList.innerHTML = `<li class="empty">${emptyListMessage(all, byFilter)}</li>`;
-    $('#showOtherService', els.resList)?.addEventListener('click', () => {
-      state.service = state.service === 'midi' ? 'soir' : 'midi';
+    $('#showOtherService', els.resList)?.addEventListener('click', (e) => {
+      state.service = e.currentTarget.dataset.service;
       render();
     });
+    $('#openServiceDay', els.resList)?.addEventListener('click', () => setServiceDay(state.service, true));
+    $('#openDayServices', els.resList)?.addEventListener('click', openDayServices);
     $('#showAllFilter', els.resList)?.addEventListener('click', () => {
       state.filter = 'all';
       render();
@@ -420,11 +562,11 @@ function renderList() {
 
 /** Carte d'une réservation (utilisée dans la liste et dans la fiche du plan sur téléphone). */
 function buildCard(r) {
-  const status = statusOf(r);
+  const status = displayStatus(r);
   const li = document.createElement('li');
   li.className = `res-card status-${status}${r.tableIds.length ? ' placed' : ''}${state.selectedRes === r.id ? ' selected' : ''}`;
   // pas de glisser pour une réservation fixée
-  const movable = status !== 'left' && !r.archived && !r.pinned;
+  const movable = status !== 'left' && status !== 'cancelled' && !r.archived && !r.pinned;
   li.draggable = movable;
   li.dataset.id = r.id;
   li.innerHTML = cardHtml(r);
@@ -507,13 +649,13 @@ function renderDetail() {
   if (!detailEl.open) return;
   const r = resById(detailId);
   if (!r) return closeDetail(); // supprimée (ou changée de jour) entre-temps
-  const status = statusOf(r);
+  const status = displayStatus(r);
   const placed = r.tableIds.length > 0;
   const active = isActive(r) && !r.archived;
   const statusTime = status === 'arrived' ? hhmm(r.arrivedAt) : status === 'left' ? hhmm(r.leftAt) : '';
   const tables = placed
     ? tablesPill(r, status)
-    : status === 'left' ? '<span class="muted">Aucune table</span>' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
+    : status === 'left' || status === 'cancelled' ? '<span class="muted">Aucune table</span>' : `<span class="pill todo${status === 'arrived' ? ' urgent' : ''}">À placer</span>`;
   const capacity = cap(r.tableIds);
 
   const row = (icon, label, value) => `<div class="dt-row"><span class="dt-label">${icon}${label}</span><span class="dt-value">${value}</span></div>`;
@@ -542,7 +684,8 @@ function renderDetail() {
           : '',
         placed && !r.pinned ? actionBtn('unassign', ICONS.remove, 'Retirer du plan', 'La réservation repasse « à placer »') : '',
         actionBtn('note', ICONS.note, r.internalNote ? 'Modifier la note' : 'Note interne', 'Note visible uniquement par l’équipe', r.internalNote ? 'has-note' : ''),
-        actionBtn('edit', ICONS.edit, 'Modifier', 'Nom, nombre de personnes, heure, téléphone… (et supprimer)'),
+        actionBtn('edit', ICONS.edit, 'Modifier', 'Nom, nombre de personnes, heure, téléphone…'),
+        actionBtn('cancel', ICONS.remove, 'Annuler la réservation', 'Elle reste visible dans « Annulées », avec son historique', 'danger'),
       ].join('')
     : '';
 
@@ -558,14 +701,101 @@ function renderDetail() {
       </header>
       <div class="dt-rows">${rows}</div>
       ${note}
-      ${active || status === 'left' ? `<div class="dt-main">${mainActionHtml(r, status)}${
+      ${(active || status === 'left' || status === 'cancelled') && !r.archived ? `<div class="dt-main">${mainActionHtml(r, status)}${
         status === 'arrived' ? actionBtn('unarrive', ICONS.undo, 'Annuler l’arrivée', 'Arrivée cochée par erreur') : ''}</div>` : ''}
       ${actions ? `<div class="dt-actions">${actions}</div>` : ''}
+      ${historyHtml(r)}
     </div>`;
+}
+
+/* ---------- Historique d'une réservation ---------- */
+
+const FIELD_LABEL = {
+  name: 'Nom', people: 'Personnes', date: 'Date', time: 'Heure', phone: 'Téléphone', notes: 'Demande', internalNote: 'Note interne',
+};
+const STATUS_WORD = { expected: 'attendu', arrived: 'arrivé', left: 'parti' };
+
+/** « 24/10 à 14:02 » (et l'année si ce n'est pas celle en cours). */
+function whenLabel(iso) {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', ...(d.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) });
+  return `${date} à ${hhmm(iso)}`;
+}
+
+/** Valeur lisible d'un champ dans l'historique (date jj/mm, texte raccourci, vide = —). */
+function fieldValue(k, v) {
+  if (v === '' || v === null || v === undefined) return '—';
+  if (k === 'date') return frDate(v);
+  const text = String(v);
+  return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+}
+
+function historyLine(h) {
+  if (h.type === 'created') {
+    return `Réservation créée${h.people ? ` — ${h.people} pers., ${frDate(h.date)} à ${h.time}` : ''}`;
+  }
+  if (h.type === 'edited') {
+    return `Modifiée : ${Object.entries(h.changes).map(([k, [a, b]]) => `${FIELD_LABEL[k] ?? k} ${fieldValue(k, a)} → ${fieldValue(k, b)}`).join(' · ')}`;
+  }
+  if (h.type === 'status') {
+    const key = `${h.from}>${h.to}`;
+    return {
+      'expected>arrived': 'Clients arrivés',
+      'arrived>left': 'Clients partis (tables libérées)',
+      'expected>left': 'Clients partis',
+      'arrived>expected': 'Arrivée annulée (de nouveau attendus)',
+      'left>arrived': 'Rétablie (de nouveau en salle)',
+      'left>expected': 'Rétablie (de nouveau attendus)',
+    }[key] ?? `État : ${STATUS_WORD[h.from] ?? h.from} → ${STATUS_WORD[h.to] ?? h.to}`;
+  }
+  if (h.type === 'cancelled') return 'Réservation annulée';
+  if (h.type === 'restored') return 'Réservation rétablie';
+  return h.type;
+}
+
+/** Historique dans la fiche : du plus récent au plus ancien, replié s'il est long. */
+function historyHtml(r) {
+  let list = r.history ?? [];
+  // Réservations d'avant l'historique : on montre au moins sa création
+  if (!list.length && r.createdAt) list = [{ type: 'created', at: r.createdAt }];
+  if (!list.length) return '';
+  const items = [...list].reverse().map((h) => `<li class="hist-${h.type}"><time>${esc(whenLabel(h.at))}</time><span>${esc(historyLine(h))}</span></li>`);
+  return `<details class="dt-history"${list.length <= 4 ? ' open' : ''}>
+      <summary>Historique <span class="muted">(${list.length})</span></summary>
+      <ol>${items.join('')}</ol>
+    </details>`;
+}
+
+/** Annule : la réservation est gardée (catégorie « Annulées », historique) et libère ses tables. */
+async function cancelReservation(r) {
+  if (!confirm(`Annuler la réservation de ${r.name} (${r.people} pers., ${r.time}) ?\nElle restera visible dans « Annulées ».`)) return false;
+  try {
+    replaceReservation(await api.cancelReservation(r.id));
+    if (state.selectedRes === r.id) state.selectedRes = null;
+    toast(`Réservation de ${r.name} annulée — voir « Annulées »`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+    return false;
+  }
+  render();
+  return true;
+}
+
+async function uncancelReservation(r) {
+  try {
+    const restored = await api.uncancelReservation(r.id);
+    replaceReservation(restored);
+    toast(restored.tableIds.length ? `${r.name} rétabli·e — placé·e en ${tableNames(restored)}` : `${r.name} rétabli·e — à placer`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  render();
 }
 
 /** Actions d'une réservation (boutons de la carte et de la fiche). */
 function resAction(r, action) {
+  if (action === 'cancel') return cancelReservation(r);
+  if (action === 'uncancel') return uncancelReservation(r);
   if (action === 'arrive') return setStatus(r, 'arrived');
   if (action === 'unarrive') return setStatus(r, 'expected');
   if (action === 'leave') return setStatus(r, 'left');
@@ -635,10 +865,10 @@ function revealTables(ids) {
 }
 
 /** Puces de filtre avec le nombre de réservations de chaque catégorie. */
-function renderFilters(all) {
+function renderFilters() {
   const box = $('#filters');
   box.innerHTML = FILTERS.map((f) => {
-    const n = all.filter(f.test).length;
+    const n = listForFilter(f).filter(f.test).length;
     const active = f.id === currentFilter().id;
     const warn = f.id === 'todo' && n > 0 ? ' warn' : '';
     return `<button type="button" role="tab" aria-selected="${active}" class="fchip${active ? ' active' : ''}${n ? '' : ' empty'}${warn}" data-value="${f.id}">
@@ -717,15 +947,22 @@ function timeHeader(time, group) {
 
 /** Liste vide : explique pourquoi, et propose l'autre service si la recherche y trouve quelqu'un. */
 function emptyListMessage(all, byFilter) {
+  if (!all.length && !dayServices().length) return 'Aucun service ouvert ce jour-là.<br><button type="button" class="link-btn" id="openDayServices">Ouvrir un service…</button>';
+  if (!all.length && !isOpen(state.service)) {
+    return `Le service « ${esc(serviceLabel(state.service))} » est fermé ce jour-là.<br><button type="button" class="link-btn" id="openServiceDay">L’ouvrir pour la journée</button>`;
+  }
   if (!all.length) return 'Aucune réservation pour ce service.';
   if (!state.search) return `Aucune réservation « ${esc(currentFilter().label)} ».<br><button type="button" class="link-btn" id="showAllFilter">Voir toutes les réservations →</button>`;
-  const other = state.service === 'midi' ? 'soir' : 'midi';
-  const elsewhere = state.reservations.filter((r) => serviceOf(r.time) === other && matchesSearch(r, state.search)).length;
+  // Un autre service du jour où la recherche trouve quelqu'un
+  const live = state.reservations.filter((r) => !isCancelled(r));
+  const other = getServices().find((sv) => sv.id !== state.service &&
+    live.some((r) => serviceOf(r.time) === sv.id && matchesSearch(r, state.search)))?.id;
+  const elsewhere = other ? live.filter((r) => serviceOf(r.time) === other && matchesSearch(r, state.search)).length : 0;
   const hidden = all.filter((r) => matchesSearch(r, state.search)).length - byFilter.filter((r) => matchesSearch(r, state.search)).length;
   let msg = `Aucun résultat pour « ${esc(state.search)} »`;
   if (hidden > 0) msg += ` dans ce filtre (${hidden} dans « Toutes »)`;
   msg += '.';
-  if (elsewhere) msg += `<br><button type="button" class="link-btn" id="showOtherService">${elsewhere} résultat${elsewhere > 1 ? 's' : ''} au service du ${other} →</button>`;
+  if (elsewhere) msg += `<br><button type="button" class="link-btn" id="showOtherService" data-service="${other}">${elsewhere} résultat${elsewhere > 1 ? 's' : ''} : ${esc(serviceLabel(other))} →</button>`;
   return msg;
 }
 
@@ -905,6 +1142,145 @@ async function setChairsOfSelection(chairs) {
   toast(`Chaises modifiées sur ${rects.length} table${rects.length > 1 ? 's' : ''}`);
 }
 
+/* ---------- Services (réglages) ---------- */
+
+// Brouillon en cours de modification (null = celui enregistré) ; enregistré automatiquement
+let servicesDraft = null;
+let servicesDirty = false; // modifications pas encore enregistrées
+let servicesSaveTimer = 0;
+let servicesStatus = { text: '', warn: false };
+const WEEK = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const WEEK_FULL = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const clockIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+
+function renderServicesForm() {
+  const form = $('#servicesForm', els.inspector);
+  if (!form) return;
+  servicesDraft ??= getServices().map((sv) => ({ ...sv, days: [...sv.days] }));
+  form.innerHTML = `
+    ${servicesDraft.map((sv, i) => `<div class="svc-row" data-i="${i}">
+      <div class="row">
+        <label class="field"><span>Nom</span><input name="svcLabel" value="${esc(sv.label)}" maxlength="20" /></label>
+        <div class="field svc-start"><span>Début</span>
+          <input type="hidden" id="svcStart${i}" value="${esc(sv.start)}" />
+          <button type="button" class="picker-btn" data-picker="time" data-for="svcStart${i}">${clockIcon}<span></span></button>
+        </div>
+        <div class="field svc-start"><span>Dernière résa</span>
+          <input type="hidden" id="svcEnd${i}" value="${esc(sv.end ?? '')}" />
+          <button type="button" class="picker-btn" data-picker="time" data-for="svcEnd${i}">${clockIcon}<span></span></button>
+        </div>
+        <button type="button" class="icon-btn small svc-remove" data-remove title="Supprimer ce service" aria-label="Supprimer ${esc(sv.label)}">✕</button>
+      </div>
+      <div class="svc-days" role="group" aria-label="Jours d'ouverture habituels">
+        ${WEEK.map((d, n) => `<button type="button" class="svc-day${sv.days.includes(n) ? ' on' : ''}" data-day="${n}" aria-pressed="${sv.days.includes(n)}" title="${WEEK_FULL[n]}">${d}</button>`).join('')}
+      </div>
+    </div>`).join('')}
+    <div class="svc-actions">
+      <button type="button" class="btn ghost small" data-add>+ Ajouter un service</button>
+      <span class="svc-status${servicesStatus.warn ? ' warn' : ''}" id="svcStatus" role="status">${esc(servicesStatus.text)}</span>
+    </div>
+    <p class="muted small-note">Début → dernière résa : heures de réservation acceptées. Jours allumés : ouvert d'habitude.
+    Une réservation va au service commencé le plus récemment à son heure (ex. 12:30 → Midi).
+    Pour ouvrir ou fermer un service un seul jour : bouton à côté des services, en haut.</p>`;
+  refreshPickers(form);
+}
+
+/** État de l'enregistrement, sous la liste (« Enregistré ✓ », ou ce qui empêche d'enregistrer). */
+function setServicesStatus(text, warn = false) {
+  servicesStatus = { text, warn };
+  const el = $('#svcStatus', els.inspector);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('warn', warn);
+}
+
+/** Une modification : enregistrement automatique (après une courte pause si on tape un nom). */
+function queueServicesSave(delay = 0) {
+  servicesDirty = true;
+  setServicesStatus('Modifications en cours…');
+  clearTimeout(servicesSaveTimer);
+  servicesSaveTimer = setTimeout(saveServicesNow, delay);
+}
+
+/** Enregistre le brouillon tout de suite. Renvoie true si c'est fait (ou s'il n'y avait rien à faire). */
+async function saveServicesNow() {
+  clearTimeout(servicesSaveTimer);
+  if (!servicesDirty || !servicesDraft) return true;
+  // Heure proposée à la réservation : celle d'avant si le début n'a pas changé, sinon le début
+  const list = servicesDraft.map((sv) => ({ ...sv, time: serviceById(sv.id)?.start === sv.start ? sv.time : sv.start }));
+  try {
+    setServicesStatus('Enregistrement…');
+    const payload = await api.updateServices(list);
+    applyServices(payload);
+    // Les nouveaux services reçoivent leur id : on le garde dans le brouillon (pas de doublon au prochain enregistrement)
+    for (const sv of servicesDraft) {
+      sv.id ??= payload.services.find((p) => p.start === sv.start && p.label === sv.label.trim())?.id;
+    }
+    servicesDirty = false;
+    setServicesStatus('Enregistré ✓');
+    // On ne redessine pas les réglages pendant qu'on tape : seulement l'en-tête et la liste
+    if (document.activeElement?.closest?.('#servicesForm')) {
+      renderControls();
+      renderList();
+    } else render();
+    return true;
+  } catch (err) {
+    setServicesStatus(`Non enregistré : ${err.message}`, true);
+    return false;
+  }
+}
+
+function bindServicesForm() {
+  const form = $('#servicesForm', els.inspector);
+  if (!form) return;
+  renderServicesForm();
+  const rowOf = (el) => servicesDraft[Number(el.closest('.svc-row')?.dataset.i)];
+  form.addEventListener('input', (e) => {
+    if (e.target.name !== 'svcLabel') return;
+    rowOf(e.target).label = e.target.value;
+    queueServicesSave(800);
+  });
+  form.addEventListener('change', (e) => {
+    if (e.target.id?.startsWith('svcStart')) rowOf(e.target).start = e.target.value;
+    else if (e.target.id?.startsWith('svcEnd')) rowOf(e.target).end = e.target.value;
+    else return;
+    queueServicesSave();
+  });
+  form.addEventListener('click', (e) => {
+    const day = e.target.closest('[data-day]');
+    if (day) {
+      const sv = rowOf(day);
+      const n = Number(day.dataset.day);
+      sv.days = sv.days.includes(n) ? sv.days.filter((d) => d !== n) : [...sv.days, n].sort();
+      renderServicesForm();
+      return queueServicesSave();
+    }
+    if (e.target.closest('[data-remove]')) {
+      const sv = rowOf(e.target);
+      if (servicesDraft.length === 1) return toast('Il faut garder au moins un service', 'error');
+      if (!confirm(`Supprimer le service « ${sv.label} » ? Ses réservations iront au service précédent de la journée.`)) return;
+      servicesDraft.splice(servicesDraft.indexOf(sv), 1);
+      renderServicesForm();
+      return queueServicesSave();
+    }
+    if (e.target.closest('[data-add]')) {
+      // Nouveau service : une heure de début libre, fermé d'habitude (on choisit ensuite ses jours)
+      const used = new Set(servicesDraft.map((sv) => sv.start));
+      const start = ['09:00', '10:00', '14:00', '15:00', '17:00', '22:00'].find((t) => !used.has(t)) ?? '06:00';
+      const end = `${String(Math.min(23, Number(start.slice(0, 2)) + 1)).padStart(2, '0')}:${start.slice(3)}`;
+      servicesDraft.push({ label: 'Nouveau service', start, end, time: start, days: [] });
+      renderServicesForm();
+      form.querySelector('.svc-row:last-of-type input[name="svcLabel"]')?.select();
+      queueServicesSave();
+    }
+  });
+  // Entrée dans un champ : enregistrer tout de suite
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveServicesNow();
+  });
+}
+
 /* ---------- Conservation des données clients (réglages) ---------- */
 
 let retentionCache = null;
@@ -994,6 +1370,9 @@ function renderInspector() {
 
       <button class="btn danger ghost small clear-plan" id="clearPlan">Repartir d'un plan vierge</button>
 
+      <div class="section-label">Services</div>
+      <form class="item-form services-form" id="servicesForm" novalidate></form>
+
       <div class="section-label">Données des clients</div>
       <form class="item-form" id="retentionForm" novalidate>
         <div class="row">
@@ -1018,6 +1397,7 @@ function renderInspector() {
     </div>`;
 
   bindRetentionForm();
+  bindServicesForm();
 
   $('#pinForm', els.inspector).addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2596,6 +2976,7 @@ $('#moreMenu').addEventListener('click', (e) => {
   if (action === 'today') setDate(localDate());
   if (action === 'edit') $('#editToggle').click();
   if (action === 'lock') $('#lockBtn').click();
+  if (action === 'services') openDayServices();
 });
 document.addEventListener('pointerdown', (e) => {
   if (!$('#moreMenu').hidden && !e.target.closest('#moreMenu, #navMore')) toggleMoreMenu(false);
@@ -3008,7 +3389,7 @@ function renderPickBar() {
           : `<b class="enough">${capacity} places</b>`}`;
   bar.innerHTML = `
     <div class="grouping-info">
-      <strong>${esc(pick.name)} · ${pick.people} pers. — ${esc(state.service === 'midi' ? 'midi' : 'soir')} du ${esc(frDate(state.date))}</strong>
+      <strong>${esc(pick.name)} · ${pick.people} pers. — ${esc(serviceLabel(state.service).toLowerCase())} du ${esc(frDate(state.date))}</strong>
       <span>${status}</span>
       ${displaced.length ? `<span class="muted">${esc(displaced.map((r) => r.name).join(', '))} ${displaced.length > 1 ? 'seront déplacé·es' : 'sera déplacé·e'} sur une autre table libre.</span>` : ''}
       <span class="muted">Vous pouvez aussi glisser les autres réservations pour faire de la place.</span>
@@ -3022,7 +3403,7 @@ function renderPickBar() {
 }
 
 $('#pickOnPlan').addEventListener('click', startFormPick);
-// Calendriers : un point par service (midi, soir), coloré selon le remplissage
+// Calendriers : un point par service ouvert (matin, midi, soir…), coloré selon le remplissage
 initPickers({ dayInfo: (from, to) => api.summary(from, to) });
 
 /** Confirmations données dans le formulaire ouvert (« placer quand même »…), oubliées à la réouverture. */
@@ -3036,16 +3417,17 @@ function openDialog(r = null) {
   f.name.value = r?.name ?? '';
   f.people.value = r?.people ?? 2;
   f.date.value = r?.date ?? state.date;
-  f.time.value = r?.time ?? (state.service === 'midi' ? '12:30' : '20:00');
+  f.time.value = r?.time ?? serviceById(state.service)?.time ?? '20:00'; // heure habituelle du service affiché
   f.phone.value = r?.phone ?? '';
   f.notes.value = r?.notes ?? '';
   f.internalNote.value = r?.internalNote ?? '';
   f.tables.value = r ? tableNames(r) : '';
   f.pinned.checked = Boolean(r?.pinned);
   refreshPickers(f); // boutons date / heure (sélecteurs maison)
+  updateTimeHint();
   $('#formError').textContent = '';
   $('#noTableBox').hidden = true;
-  $('#deleteRes').hidden = !r;
+  $('#deleteRes').hidden = !r || isCancelled(r); // annulée : on la rétablit depuis sa fiche
   els.dialog.showModal();
   f.name.focus();
 }
@@ -3059,6 +3441,8 @@ els.form.addEventListener('submit', async (e) => {
   if (confirmed.has('unplaced')) data.allowUnplaced = true;
   if (confirmed.has('tight')) data.allowTight = true;
   if (confirmed.has('displace')) data.allowDisplace = true;
+  if (confirmed.has('closed')) data.allowClosed = true;
+  if (confirmed.has('late')) data.allowLate = true;
   $('#noTableBox').hidden = true;
   $('#formError').textContent = '';
   try {
@@ -3071,6 +3455,7 @@ els.form.addEventListener('submit', async (e) => {
     // Rechargement : d'autres réservations ont pu être déplacées pour libérer la table choisie
     state.date = saved.date;
     await loadReservations();
+    if (data.allowClosed) await loadPlan(); // le service vient d'être ouvert pour ce jour-là
     state.service = serviceOf(saved.time);
     // Nouvelle réservation (ou changée de service) : une table libre lui est attribuée automatiquement
     const placedNow = saved.tableIds.length > 0 && saved.tableIds.join() !== oldTables;
@@ -3088,6 +3473,8 @@ els.form.addEventListener('submit', async (e) => {
       no_table: ['unplaced', 'La réservation n’est pas enregistrée.', 'Enregistrer sans table'],
       too_small: ['tight', 'Choisissez une autre table, ou placez-la quand même (on se serre).', 'Placer quand même'],
       displace: ['displace', 'Choisissez une autre table, ou placez-la quand même.', 'Placer quand même'],
+      closed: ['closed', 'Choisissez une autre date ou heure, ou ouvrez ce service pour la journée.', 'Ouvrir ce service et enregistrer'],
+      hours: ['late', 'Choisissez une heure dans ces horaires, ou enregistrez quand même.', 'Enregistrer quand même'],
     }[err.reason];
     if (NEXT) {
       // Rien n'est enregistré : on explique et on propose de choisir une table, ou de continuer quand même
@@ -3114,7 +3501,19 @@ for (const id of ['resDate', 'resTime']) {
   $(`#${id}`).addEventListener('change', () => {
     confirmed.clear();
     $('#noTableBox').hidden = true;
+    updateTimeHint();
   });
+}
+
+/** Sous « Heure » : le service correspondant et ses horaires (orange si l'heure en sort). */
+function updateTimeHint() {
+  const time = $('#resTime').value;
+  const sv = time && serviceById(serviceOf(time));
+  const hint = $('#timeHint');
+  if (!sv) return (hint.textContent = '');
+  const out = time < sv.start || (sv.end && time > sv.end);
+  hint.textContent = `${sv.label} : ${sv.start} – ${sv.end ?? ''}`;
+  hint.classList.toggle('warn', Boolean(out));
 }
 $('#noTableSave').addEventListener('click', (e) => {
   confirmed.add(e.currentTarget.dataset.allow);
@@ -3124,17 +3523,7 @@ $('#noTableSave').addEventListener('click', (e) => {
 $('#cancelRes').addEventListener('click', () => els.dialog.close());
 $('#deleteRes').addEventListener('click', async () => {
   const r = resById(editingId);
-  if (!r || !confirm(`Supprimer la réservation de ${r.name} ?`)) return;
-  try {
-    await api.deleteReservation(r.id);
-    state.reservations = state.reservations.filter((x) => x.id !== r.id);
-    if (state.selectedRes === r.id) state.selectedRes = null;
-    els.dialog.close();
-    toast('Réservation supprimée');
-    render();
-  } catch (err) {
-    $('#formError').textContent = err.message;
-  }
+  if (r && (await cancelReservation(r))) els.dialog.close();
 });
 
 /* ---------- Contrôles ---------- */
@@ -3152,13 +3541,13 @@ $('#prevDay').addEventListener('click', () => setDate(shiftDate(state.date, -1))
 $('#nextDay').addEventListener('click', () => setDate(shiftDate(state.date, 1)));
 $('#today').addEventListener('click', () => setDate(localDate()));
 
-document.querySelectorAll('#service button').forEach((b) =>
-  b.addEventListener('click', () => {
-    state.service = b.dataset.value;
-    state.selectedRes = null;
-    render();
-  })
-);
+$('#service').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-value]');
+  if (!b) return;
+  state.service = b.dataset.value;
+  state.selectedRes = null;
+  render();
+});
 $('#search').addEventListener('input', (e) => {
   state.search = e.target.value;
   renderList();
@@ -3251,9 +3640,15 @@ function setCompactHead(on) {
 // On cherche ou on filtre : tout réapparaît
 $('#search').addEventListener('focus', () => setCompactHead(false));
 
-$('#editToggle').addEventListener('click', () => {
+$('#editToggle').addEventListener('click', async () => {
+  if (state.editMode && servicesDirty && !(await saveServicesNow())) {
+    if (!confirm(`Les services n'ont pas pu être enregistrés :\n${servicesStatus.text.replace(/^Non enregistré : /, '')}\n\nQuitter quand même (les modifications des services seront perdues) ?`)) return;
+  }
   state.editMode = !state.editMode;
   retentionCache = null; // chiffres à jour à chaque ouverture des réglages
+  servicesDraft = null;
+  servicesDirty = false;
+  servicesStatus = { text: '', warn: false };
   state.selected = null;
   state.linking = null;
   state.selectedRes = null;

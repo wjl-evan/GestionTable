@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb, persist, httpError } from '../store.js';
+import { servicesPayload } from '../services.js';
 
 const router = Router();
 
@@ -44,7 +45,7 @@ function sanitizeZone(input, current = {}) {
 
 const planPayload = () => {
   const { room, zones, tables, groups } = getDb();
-  return { room, zones, tables, groups };
+  return { room, zones, tables, groups, ...servicesPayload() };
 };
 
 router.get('/', (req, res) => res.json(planPayload()));

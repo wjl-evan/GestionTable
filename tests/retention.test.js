@@ -65,3 +65,16 @@ test('une réservation déjà anonymisée n’est pas recomptée', () => {
   const plan = planRetention([anonymize(R('done', '2025-01-01'))], cut);
   assert.equal(plan.anonymized, 0);
 });
+
+test('anonymiser efface aussi les anciennes valeurs personnelles de l’historique', () => {
+  const r = R('h', '2025-01-01', {
+    history: [
+      { type: 'created', people: 4, date: '2025-01-01', time: '20:00' },
+      { type: 'edited', changes: { name: ['Dupont', 'Durand'], phone: ['06', '07'], people: [4, 6] } },
+    ],
+  });
+  const a = anonymize(r);
+  assert.deepEqual(a.history[1].changes, { name: ['', ''], phone: ['', ''], people: [4, 6] });
+  assert.deepEqual(a.history[0], r.history[0]);
+  assert.ok(!JSON.stringify(a).includes('Dupont'));
+});

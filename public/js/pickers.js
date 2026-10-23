@@ -57,7 +57,8 @@ function commit(input, value) {
 
 /* ---------- Calendrier ---------- */
 
-// Remplissage des services, fourni par l'application : (from, to) → { date: { midi, soir } }
+// Remplissage des services, fourni par l'application :
+// (from, to) → { date: [{ id, label, open, count, ratio }, …] } (services du jour, dans l'ordre)
 let dayInfo = null;
 
 /** Niveau de remplissage d'un service → couleur du point. */
@@ -118,13 +119,15 @@ function openDate(input, withDots) {
       const value = iso(date);
       const d = date.getDate();
       const out = date.getMonth() !== month; // jour du mois précédent / suivant
-      const cls = [value === selected ? 'selected' : '', value === today ? 'today' : '', out ? 'out' : ''].filter(Boolean).join(' ');
-      // Deux points : midi à gauche, soir à droite, couleur selon le remplissage
+      // Un point par service du jour (dans l'ordre : matin, midi, soir…), couleur selon le remplissage ;
+      // aucun service ouvert : jour « fermé »
       const day = info?.[value];
+      const closed = Boolean(info) && !day?.length;
+      const cls = [value === selected ? 'selected' : '', value === today ? 'today' : '', out ? 'out' : '', closed ? 'closed' : ''].filter(Boolean).join(' ');
       const dots = info
-        ? `<span class="pk-dots"><i class="lvl-${level(day?.midi)}"></i><i class="lvl-${level(day?.soir)}"></i></span>`
+        ? `<span class="pk-dots">${(day ?? []).map((s) => `<i class="lvl-${level(s)}${s.open ? '' : ' shut'}"></i>`).join('')}</span>`
         : withDots ? '<span class="pk-dots"></span>' : '';
-      const title = info ? ` — midi : ${pct(day?.midi)}, soir : ${pct(day?.soir)}` : '';
+      const title = !info ? '' : closed ? ' — fermé' : ` — ${day.map((s) => `${s.label.toLowerCase()} : ${s.open ? pct(s) : 'fermé'}`).join(', ')}`;
       cells.push(`<button type="button" class="${cls}" data-day="${value}" aria-label="${label('date', value, 'long')}${title}" title="${title.slice(3)}"><span class="pk-num">${d}</span>${dots}</button>`);
     }
     const head = parseIso(selected);
@@ -142,7 +145,7 @@ function openDate(input, withDots) {
         <div class="pk-weekdays">${DAYS.map((d) => `<span>${d}</span>`).join('')}</div>
         <div class="pk-days">${cells.join('')}</div>
         ${withDots ? `<div class="pk-legend">
-          <span class="pk-legend-pos"><i class="lvl-low"></i><i class="lvl-low"></i> point gauche : midi · droit : soir</span>
+          <span class="pk-legend-pos"><i class="lvl-low"></i><i class="lvl-low"></i> un point par service ouvert, dans l'ordre de la journée</span>
           <span>${LEVELS.map(([k, t]) => `<span><i class="lvl-${k}"></i>${t}</span>`).join('')}</span>
         </div>` : ''}
       </div>
