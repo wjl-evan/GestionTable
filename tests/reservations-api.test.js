@@ -87,7 +87,13 @@ test('table occupée (non fixée) : l’autre réservation est déplacée sur un
 });
 
 test('plus aucune table libre : la réservation délogée passe « à placer », avec un message', async () => {
-  const { data: emma } = await book('Emma', { tables: '3' }); // T3 était à Claire
+  // T3 est à Claire et plus aucune table n'est libre pour elle : on prévient d'abord
+  const warned = await book('Emma', { tables: '3' });
+  assert.equal(warned.status, 409);
+  assert.equal(warned.data.reason, 'displace');
+  assert.match(warned.data.error, /aucune autre table n'est libre pour Claire .*Claire passera « à placer »/);
+  // « Placer quand même »
+  const { data: emma } = await book('Emma', { tables: '3', allowDisplace: true });
   assert.equal(names(emma.tableIds), 'T3');
   assert.match(emma.notices[0], /Aucune autre table n'est libre .*Claire est maintenant « à placer »/);
   const list = (await api('GET', `/reservations?date=${DATE}`)).data;
@@ -138,6 +144,20 @@ test('remplissage par service (points du calendrier) : vide, partiel, complet', 
   assert.equal((await api('GET', '/reservations/summary?from=2030-06-16&to=2030-06-01')).status, 400);
 });
 
+test('table choisie trop petite : refusée, sauf « placer quand même »', async () => {
+  const other = { date: '2030-06-18', time: '20:00' };
+  const refused = await book('Max', { ...other, people: 8, tables: 'T2' });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.reason, 'too_small');
+  assert.match(refused.data.error, /T2 n'a que 4 places pour 8 personnes/);
+  let list = (await api('GET', '/reservations?date=2030-06-18')).data;
+  assert.ok(!list.some((r) => r.name === 'Max'));
+
+  const accepted = await book('Max', { ...other, people: 8, tables: 'T2', allowTight: true });
+  assert.equal(accepted.status, 201);
+  assert.equal(names(accepted.data.tableIds), 'T2');
+});
+
 test('table inconnue : erreur claire', async () => {
   const { status, data } = await book('Félix', { tables: '99' });
   assert.equal(status, 400);
@@ -147,7 +167,12 @@ test('table inconnue : erreur claire', async () => {
 test('modifier : changer de table, puis libérer la fixation', async () => {
   const { data: gina } = await api('POST', '/reservations', { name: 'Gina', people: 3, date: DATE, time: '12:30', tables: '2+3' });
   assert.equal(names(gina.tableIds), 'T2+T3');
-  const { data: moved } = await api('PUT', `/reservations/${gina.id}`, { tables: 'T1', pinned: true });
+  // T1 n'a que 2 places pour 3 : il faut confirmer (« Placer quand même »)
+  const refused = await api('PUT', `/reservations/${gina.id}`, { tables: 'T1', pinned: true });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.data.reason, 'too_small');
+  assert.match(refused.data.error, /T1 n'a que 2 places pour 3 personnes/);
+  const { data: moved } = await api('PUT', `/reservations/${gina.id}`, { tables: 'T1', pinned: true, allowTight: true });
   assert.equal(names(moved.tableIds), 'T1');
   assert.equal(moved.pinned, true);
   const { data: unpinned } = await api('PUT', `/reservations/${gina.id}`, { tables: 'T1', pinned: false });

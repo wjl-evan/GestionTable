@@ -1491,19 +1491,31 @@ function rowChairs(cluster, extra) {
   }
   for (let i = 0; over > 0; i++, over--) counts[rows[i % rows.length]]++;
 
-  // Une chaise face à un espace entre deux tables, ou en bout de bloc, est une chaise ajoutée
-  const overTable = (c) => cluster.some((t) => (horizontal ? c.x >= t.x && c.x <= t.x + t.w : c.y >= t.y && c.y <= t.y + t.h));
+  // Chaises d'origine des tables, côté par côté (coordonnées du plan) : pour savoir lesquelles sont ajoutées
+  const sideOf = (t, c) => (c.y < 0 ? 'top' : c.y > t.h ? 'bottom' : c.x < 0 ? 'left' : 'right');
+  const original = {};
+  for (const t of cluster) {
+    for (const c of chairPositions(t)) (original[sideOf(t, c)] ??= []).push({ x: t.x + c.x, y: t.y + c.y });
+  }
+
   const out = [];
   for (const [side, k] of Object.entries(counts)) {
     const len = side === 'top' || side === 'bottom' ? box.w : box.h;
+    const chairs = [];
     for (let i = 0; i < k; i++) {
       const p = (len * (i + 1)) / (k + 1);
-      const c = side === 'top' ? { x: box.x + p, y: box.y - CHAIR_OFF, rot: 0 }
+      chairs.push(side === 'top' ? { x: box.x + p, y: box.y - CHAIR_OFF, rot: 0 }
         : side === 'bottom' ? { x: box.x + p, y: box.y + box.h + CHAIR_OFF, rot: 0 }
         : side === 'left' ? { x: box.x - CHAIR_OFF, y: box.y + p, rot: 90 }
-        : { x: box.x + box.w + CHAIR_OFF, y: box.y + p, rot: 90 };
-      out.push({ ...c, extra: !rows.includes(side) || !overTable(c) });
+        : { x: box.x + box.w + CHAIR_OFF, y: box.y + p, rot: 90 });
     }
+    // Exactement autant de chaises « ajoutées » que de chaises en plus sur ce côté : celles qui sont
+    // le plus loin des chaises d'origine (dans un espace entre deux tables, en bout de rangée…)
+    const base = original[side] ?? [];
+    const added = Math.max(0, k - base.length);
+    const far = (c) => Math.min(Infinity, ...base.map((b) => Math.hypot(b.x - c.x, b.y - c.y)));
+    const marked = new Set([...chairs.keys()].sort((a, b) => far(chairs[b]) - far(chairs[a])).slice(0, added));
+    chairs.forEach((c, i) => out.push({ ...c, extra: marked.has(i) }));
   }
   return out;
 }
@@ -3013,8 +3025,12 @@ $('#pickOnPlan').addEventListener('click', startFormPick);
 // Calendriers : un point par service (midi, soir), coloré selon le remplissage
 initPickers({ dayInfo: (from, to) => api.summary(from, to) });
 
+/** Confirmations données dans le formulaire ouvert (« placer quand même »…), oubliées à la réouverture. */
+const confirmed = new Set();
+
 function openDialog(r = null) {
   editingId = r?.id ?? null;
+  confirmed.clear();
   const f = els.form;
   $('#resDialogTitle').textContent = r ? 'Modifier la réservation' : 'Nouvelle réservation';
   f.name.value = r?.name ?? '';
@@ -3038,9 +3054,11 @@ els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(els.form));
   data.pinned = els.form.pinned.checked; // case décochée : absente du formulaire, mais on veut « false »
-  // « Enregistrer sans table » : on accepte qu'elle reste « à placer »
-  if (els.form.dataset.allowUnplaced) data.allowUnplaced = true;
-  delete els.form.dataset.allowUnplaced;
+  // Confirmations déjà données dans ce formulaire : « Enregistrer sans table » (reste « à placer »),
+  // « Placer quand même » (table trop petite, ou réservation délogée sans autre table)
+  if (confirmed.has('unplaced')) data.allowUnplaced = true;
+  if (confirmed.has('tight')) data.allowTight = true;
+  if (confirmed.has('displace')) data.allowDisplace = true;
   $('#noTableBox').hidden = true;
   $('#formError').textContent = '';
   try {
@@ -3066,9 +3084,17 @@ els.form.addEventListener('submit', async (e) => {
     for (const n of notices) toast(n, /à placer|pas pu/.test(n) ? 'error' : 'success');
     render();
   } catch (err) {
-    if (err.reason === 'no_table') {
-      // Rien n'est enregistré : on explique et on propose de choisir une table, ou de la prendre quand même
-      $('#noTableText').textContent = `${err.message} La réservation n'est pas enregistrée.`;
+    const NEXT = {
+      no_table: ['unplaced', 'La réservation n’est pas enregistrée.', 'Enregistrer sans table'],
+      too_small: ['tight', 'Choisissez une autre table, ou placez-la quand même (on se serre).', 'Placer quand même'],
+      displace: ['displace', 'Choisissez une autre table, ou placez-la quand même.', 'Placer quand même'],
+    }[err.reason];
+    if (NEXT) {
+      // Rien n'est enregistré : on explique et on propose de choisir une table, ou de continuer quand même
+      const [allow, advice, label] = NEXT;
+      $('#noTableText').textContent = `${err.message} ${advice}`;
+      $('#noTableSave').textContent = label;
+      $('#noTableSave').dataset.allow = allow;
       $('#noTableBox').hidden = false;
       $('#noTableBox').scrollIntoView({ block: 'nearest' });
     } else {
@@ -3078,8 +3104,20 @@ els.form.addEventListener('submit', async (e) => {
 });
 
 $('#noTablePick').addEventListener('click', startFormPick);
-$('#noTableSave').addEventListener('click', () => {
-  els.form.dataset.allowUnplaced = '1';
+// Une confirmation vaut pour ce qu'on a vu : si on change la table, le nombre, la date ou l'heure, on redemande
+els.form.addEventListener('input', (e) => {
+  if (!['tables', 'people'].includes(e.target.name)) return;
+  confirmed.clear();
+  $('#noTableBox').hidden = true;
+});
+for (const id of ['resDate', 'resTime']) {
+  $(`#${id}`).addEventListener('change', () => {
+    confirmed.clear();
+    $('#noTableBox').hidden = true;
+  });
+}
+$('#noTableSave').addEventListener('click', (e) => {
+  confirmed.add(e.currentTarget.dataset.allow);
   els.form.requestSubmit();
 });
 

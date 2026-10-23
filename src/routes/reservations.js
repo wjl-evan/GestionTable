@@ -156,6 +156,53 @@ function placeOnChosenTables(reservation, tableIds) {
   return notices;
 }
 
+/**
+ * Tables choisies à la main trop petites : on demande confirmation (« Placer quand même »,
+ * on se serre) au lieu d'enregistrer directement.
+ */
+/**
+ * Tables choisies déjà prises : on vérifie, sans rien changer, que les réservations délogées
+ * retrouveront une table libre. Sinon on prévient (elles passeraient « à placer ») et on attend
+ * la confirmation (« Placer quand même »).
+ */
+function assertDisplaceable(reservation, tableIds, allowDisplace) {
+  if (allowDisplace) return;
+  const occupants = occupantsOf(reservation, tableIds);
+  if (!occupants.length) return;
+  const db = getDb();
+  const service = serviceOf(reservation.time);
+  const moving = new Set([reservation.id, ...occupants.map((o) => o.id)]);
+  // Tables occupées une fois la nouvelle réservation installée (sans les réservations à déplacer)
+  const busy = new Set([
+    ...tableIds,
+    ...db.reservations
+      .filter((o) => !moving.has(o.id) && o.date === reservation.date && serviceOf(o.time) === service && isActive(o))
+      .flatMap((o) => o.tableIds),
+  ]);
+  const placed = autoAssign(db.tables, occupants, busy, db.groups);
+  const stranded = occupants.filter((o) => !placed.has(o.id));
+  if (!stranded.length) return;
+  const who = stranded.map((o) => `${o.name} (${o.people} pers., ${tableNamesOf(o.tableIds)})`).join(', ');
+  throw httpError(
+    409,
+    `${tableNamesOf(tableIds)} est déjà prise et aucune autre table n'est libre pour ${who}. Si vous continuez, ${stranded.length > 1 ? 'ces réservations passeront' : `${stranded[0].name} passera`} « à placer ».`,
+    'displace'
+  );
+}
+
+function assertBigEnough(reservation, tableIds, allowTight) {
+  if (allowTight) return;
+  const db = getDb();
+  const capacity = capacityOf(db.tables, tableIds, db.groups);
+  if (capacity >= reservation.people) return;
+  const names = tableNamesOf(tableIds);
+  throw httpError(
+    409,
+    `${names} n'${tableIds.length > 1 ? 'ont' : 'a'} que ${capacity} place${capacity > 1 ? 's' : ''} pour ${reservation.people} personnes.`,
+    'too_small'
+  );
+}
+
 /** Fixe la réservation si on l'a demandé (et si elle a une table). */
 function applyPinned(reservation, wanted, notices) {
   if (wanted === undefined) return;
@@ -225,7 +272,11 @@ router.post('/', async (req, res) => {
   });
   // Tables choisies dans le formulaire : vérifiées avant d'enregistrer quoi que ce soit
   const chosen = resolveTableInput(req.body.tables);
-  if (chosen.length) assertTablesFreeable(r, chosen);
+  if (chosen.length) {
+    assertTablesFreeable(r, chosen);
+    assertBigEnough(r, chosen, req.body.allowTight);
+    assertDisplaceable(r, chosen, req.body.allowDisplace);
+  }
   // Aucune table libre : on n'enregistre pas, sauf si on a choisi de la prendre quand même (« à placer »)
   if (!chosen.length && !req.body.allowUnplaced) {
     const db = getDb();
@@ -257,7 +308,11 @@ router.put('/:id', async (req, res) => {
   const sameSet = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
   const chosen = req.body.tables === undefined ? null : resolveTableInput(req.body.tables);
   const changeTables = chosen !== null && !sameSet(chosen, current.tableIds);
-  if (changeTables && chosen.length) assertTablesFreeable(next, chosen);
+  if (changeTables && chosen.length) {
+    assertTablesFreeable(next, chosen);
+    assertBigEnough(next, chosen, req.body.allowTight);
+    assertDisplaceable(next, chosen, req.body.allowDisplace);
+  }
 
   // Changement de service ou table devenue trop petite → la réservation repasse "à placer"
   // (sauf regroupement choisi à la main ou réservation fixée : on a déjà accepté de se serrer)
