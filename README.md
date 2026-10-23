@@ -6,7 +6,8 @@ Application Node.js / Express pour gérer les réservations d'un restaurant et l
 
 **Au restaurant (Windows)** : double-cliquer sur `demarrer.bat`. Il installe ce qu'il faut au premier lancement,
 démarre le serveur et le **relance automatiquement** s'il s'arrête. La fenêtre affiche les adresses à ouvrir :
-<http://localhost:3000> sur l'ordinateur, `http://<IP>:3000` sur les tablettes du même Wi-Fi.
+- **équipe** : <http://localhost:3000/gestion> sur l'ordinateur, `http://<IP>:3000/gestion` sur les tablettes du même Wi-Fi ;
+- **clients** : <http://localhost:3000/> — la page publique de réservation (voir *Réservation en ligne*).
 
 Pour qu'il démarre tout seul à l'allumage du PC : `Win + R` → `shell:startup` → y placer un raccourci vers
 `demarrer.bat`. Conseillé : donner à ce PC une adresse IP fixe dans la box (sinon l'adresse des tablettes peut changer).
@@ -23,10 +24,33 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 
 ## Mise en service
 
-- **Code d'accès** : au premier lancement, ouvrir <http://localhost:3000> **sur l'ordinateur serveur** pour créer
-  le code de l'équipe (4 à 8 chiffres). Il est ensuite demandé sur chaque appareil (session de 30 jours). Bouton
-  cadenas en haut : verrouiller l'appareil. « Modifier le plan » → « Code d'accès » : changer le code (les autres
-  appareils devront le ressaisir). 5 erreurs → 1 minute d'attente. Le code est stocké haché, jamais en clair.
+- **Comptes** : au premier lancement, ouvrir <http://localhost:3000/gestion> **sur l'ordinateur serveur** pour créer le
+  compte administrateur (nom, email, mot de passe de 8 caractères minimum). Chaque personne se connecte ensuite
+  avec son email et son mot de passe (session de 30 jours par appareil). L'administrateur crée, modifie ou supprime
+  les comptes de l'équipe dans *Paramètres* → *Comptes de l'équipe* (rôle *Équipe* ou *Administrateur*) ;
+  il reste toujours au moins un administrateur. Chacun peut changer son mot de passe dans *Mon compte* (ses autres
+  appareils sont déconnectés). Bouton cadenas en haut : se déconnecter. 5 erreurs → 1 minute d'attente. Les mots
+  de passe sont stockés hachés (scrypt), jamais en clair. L'historique d'une réservation indique qui a fait chaque
+  changement. Une installation qui utilisait l'ancien code d'accès partagé redemande la création de l'administrateur.
+- **Paramètres** (menu ☰ sur ordinateur et tablette, « Plus » sur téléphone) : une page à part, avec un onglet par
+  sujet : *Services*, *Réservation en ligne*, *Données des clients*, *Mon compte* (mot de passe, déconnexion) et, pour les administrateurs,
+  *Comptes de l'équipe*. « Retour » (ou Échap) ramène au plan. « Modifier le plan » ne sert plus qu'à dessiner la salle.
+- **Réservation en ligne** (page publique, adresse de base `/`, sans compte) : le client choisit le nombre de
+  personnes, un jour (ni passé, ni trop lointain, ni fermé : barré dans le calendrier), puis un créneau parmi les
+  services ouverts ce jour-là (ex. Midi 12:00 → 13:30 : 12:00, 12:15… 13:30). Il ne choisit pas de table : une table
+  libre est attribuée automatiquement ; s'il n'y en a plus pour son groupe, le service est affiché « Complet ». La
+  demande particulière est facultative. La réservation apparaît aussitôt chez l'équipe, avec l'étiquette « En ligne » ;
+  l'historique indique « Réservation en ligne ». Anti-abus : 5 réservations par heure et par adresse, piège à robots.
+  **Réglages** (*Paramètres* → *Réservation en ligne*) :
+  - ouverte ou fermée (avec un message pour les clients quand elle est fermée) ;
+  - nom et téléphone du restaurant, informations affichées en haut de la page ;
+  - délai minimum avant le créneau (par défaut 1 h ; aucun à 2 jours) et jusqu'à combien de jours à l'avance (60) ;
+  - créneaux toutes les 15, 30 ou 60 min ;
+  - nombre maximum de personnes (12 ; au-delà, le client est invité à appeler) ;
+  - couverts maximum par créneau (toutes réservations à la même heure, 0 = sans limite) pour étaler les arrivées ;
+  - email et / ou téléphone obligatoires ou facultatifs (le nom est toujours demandé).
+  Pour rendre la page accessible depuis internet, il faut exposer le serveur (box, nom de domaine, HTTPS) : à faire avec
+  précaution, l'application de l'équipe est alors joignable aussi (protégée par les comptes).
 - **Synchronisation** : toutes les tablettes et ordinateurs voient les changements des autres en direct. Une mise à
   jour n'interrompt jamais une saisie en cours (formulaire, note, déplacement). Si la liaison avec le serveur est
   coupée, un bandeau rouge l'indique ; tout se recharge automatiquement au retour.
@@ -34,7 +58,7 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   5 minutes après un changement. Si `db.json` est abîmé, il est mis de côté et le serveur repart de la dernière
   sauvegarde. Pour restaurer à la main : arrêter le serveur, copier `data/backups/db-AAAA-MM-JJ.json` vers
   `data/db.json`, relancer. Conseillé : copier aussi régulièrement `data/backups/` sur une clé USB ou un cloud.
-- **Conservation des données clients** (réglable dans « Modifier le plan » → *Données des clients*) :
+- **Conservation des données clients** (réglable dans *Paramètres* → *Données des clients*) :
   - après **60 jours** (14 à 365), les services passés quittent `db.json` pour `data/archives/reservations-AAAA.json`
     (copie dans `data/backups/archives/`). `db.json` reste donc petit et rapide. Les services archivés restent
     consultables en choisissant leur date, mais ne sont plus modifiables ;
@@ -85,7 +109,7 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   pas notés. À l'anonymisation, les anciens noms / téléphones / notes de l'historique sont effacés aussi.
 - **Annuler une réservation** (fiche ou formulaire) : elle n'est pas supprimée ; elle libère ses tables, ne compte plus
   nulle part et n'apparaît que dans la catégorie « Annulées », d'où on peut la rétablir.
-- **Services** (« Modifier le plan » → *Services*) : Matin, Midi, Soir… avec leurs horaires de réservation (début →
+- **Services** (*Paramètres* → *Services*) : Matin, Midi, Soir… avec leurs horaires de réservation (début →
   dernière réservation acceptée ; en dehors, on demande confirmation) et leurs jours
   d'ouverture habituels ; on peut en ajouter (ex. Brunch le dimanche) ou en supprimer. Une réservation va au service
   commencé le plus récemment à son heure. Pour un jour précis, le bouton à côté des services (sur téléphone : « Plus »)
@@ -130,7 +154,8 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 ├── tests/                    # Tests automatiques (npm test)
 ├── src/
 │   ├── store.js              # Persistance JSON (data/db.json) + sauvegardes (data/backups)
-│   ├── auth.js               # Code d'accès de l'équipe, sessions
+│   ├── booking.js            # Réglages de la réservation en ligne
+│   ├── auth.js               # Comptes de l'équipe, connexion, sessions
 │   ├── events.js             # Synchronisation en direct entre appareils
 │   ├── retention.js          # Archivage et anonymisation des anciennes réservations
 │   ├── seed.js               # Données de démonstration
@@ -138,23 +163,29 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 │       ├── plan.js           # GET /api/plan
 │       ├── tables.js         # CRUD /api/tables
 │       ├── reservations.js   # CRUD /api/reservations + assign / unassign
+│       ├── public.js         # Réservation en ligne (page publique, sans compte)
 │       └── settings.js       # Durées de conservation des données clients
 ├── public/
-│   ├── index.html
-│   ├── css/style.css
+│   ├── index.html            # Page publique de réservation (/)
+│   ├── gestion.html          # Application de l'équipe (/gestion)
+│   ├── css/style.css         # + css/booking.css (page publique)
 │   └── js/
+│       ├── booking.js        # Page publique de réservation
 │       ├── api.js            # Client HTTP
 │       └── app.js            # Interface (liste, plan, glisser-déposer, édition)
 └── data/                     # Base JSON, archives, sauvegardes (ignorées par git)
 ```
 
-Toute l'API (sauf `/api/auth/*`) exige une session ouverte avec le code d'accès. `GET /api/events` diffuse les
+Toute l'API (sauf `/api/auth/*` et `/api/public/*`) exige d'être connecté avec un compte ; `/api/users` est réservé aux administrateurs. `GET /api/events` diffuse les
 changements aux appareils connectés.
 
 ## API
 
 | Méthode | Route | Description |
 | --- | --- | --- |
+| GET | `/api/public/info` | Page publique : limites (personnes, jours à l'avance) et jours ouverts |
+| GET | `/api/public/availability?date=&people=` | Page publique : créneaux de 15 min par service ouvert, `full` si plus de table |
+| POST | `/api/public/reservations` | Page publique : `{ name, email, phone, people, date, time, notes }` (table attribuée automatiquement) |
 | GET | `/api/plan` | Salle, zones et tables |
 | PUT | `/api/plan/room` | `{ w, h }` — dimensions de la salle |
 | DELETE | `/api/plan` | Plan vierge (supprime tables et éléments) |
@@ -171,6 +202,9 @@ changements aux appareils connectés.
 | POST | `/api/reservations/:id/pin` | `{ pinned }` — fixe la réservation à ses tables (ou la libère) |
 | POST | `/api/reservations/unassign-all` | `{ date, service }` — retire du plan les réservations attendues non fixées |
 | POST | `/api/reservations/:id/status` | `{ status: 'expected' \| 'arrived' \| 'left' }` — arrivée / départ |
+| GET / PUT | `/api/settings/booking` | Réglages de la réservation en ligne (délai, jours, créneaux, champs obligatoires…) |
 | GET / PUT | `/api/settings` | `{ archiveAfterDays, anonymizeAfterMonths }` — conservation des données, appliquée aussitôt |
 | GET / PUT | `/api/services` | Services `{ services: [{ id, label, start, end, days }] }` et exceptions par date |
+| POST | `/api/auth/setup` · `/login` · `/logout` · `/password` | Création de l'admin, connexion, déconnexion, changer son mot de passe |
+| GET / POST / PUT / DELETE | `/api/users[/:id]` | Comptes `{ name, email, password, role }` (administrateurs) |
 | PUT | `/api/services/day/:date` | `{ id, open: true | false | null }` — ouvrir / fermer un service ce jour-là |

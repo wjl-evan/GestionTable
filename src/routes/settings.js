@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { getDb } from '../store.js';
+import { getDb, persist } from '../store.js';
+import { BOOKING_LIMITS, bookingSettings, updateBookingSettings } from '../booking.js';
 import { archiveStats, retentionCutoffs, retentionSettings, RETENTION_LIMITS, updateRetention } from '../retention.js';
 
 const router = Router();
@@ -18,6 +19,15 @@ async function payload() {
 
 /** Durées de conservation des données clients + état des archives. */
 router.get('/', async (req, res) => res.json(await payload()));
+
+/** Réservation en ligne : réglages de la page publique. */
+router.get('/booking', (req, res) => res.json({ ...bookingSettings(), limits: BOOKING_LIMITS }));
+
+router.put('/booking', async (req, res) => {
+  const settings = updateBookingSettings(req.body);
+  await persist();
+  res.json({ ...settings, limits: BOOKING_LIMITS });
+});
 
 /** Changer les durées : appliqué immédiatement (archivage / anonymisation). */
 router.put('/', async (req, res) => {

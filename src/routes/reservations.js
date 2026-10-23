@@ -17,11 +17,13 @@ function validate(input, current = {}) {
   if (input.date !== undefined) r.date = String(input.date);
   if (input.time !== undefined) r.time = String(input.time);
   if (input.phone !== undefined) r.phone = String(input.phone).trim().slice(0, 30);
+  if (input.email !== undefined) r.email = String(input.email).trim().toLowerCase().slice(0, 120);
   if (input.notes !== undefined) r.notes = String(input.notes).trim().slice(0, 300);
   // Note interne : réservée à l'équipe (jamais communiquée au client)
   if (input.internalNote !== undefined) r.internalNote = String(input.internalNote).trim().slice(0, 500);
 
   if (!r.name) throw httpError(400, 'Le nom est requis');
+  if (r.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) throw httpError(400, 'Adresse email invalide');
   if (!Number.isInteger(r.people) || r.people < 1 || r.people > 50) {
     throw httpError(400, 'Nombre de personnes invalide (1 à 50)');
   }
@@ -33,13 +35,14 @@ function validate(input, current = {}) {
 /* ---------- Historique d'une réservation ----------
  * r.history = [{ at, type, … }] : created { people, date, time } · edited { changes: { champ: [avant, après] } }
  * · status { from, to } · cancelled · restored. Les tables attribuées ne sont pas notées.
+ * `by` : nom du compte qui a fait le changement (au moment du changement).
  */
-const TRACKED = ['name', 'people', 'date', 'time', 'phone', 'notes', 'internalNote'];
+const TRACKED = ['name', 'people', 'date', 'time', 'phone', 'email', 'notes', 'internalNote'];
 const HISTORY_MAX = 100;
 
-function addHistory(r, entry) {
+export function addHistory(r, req, entry) {
   r.history ??= [];
-  r.history.push({ at: new Date().toISOString(), ...entry });
+  r.history.push({ at: new Date().toISOString(), ...(req.user ? { by: req.user.name } : {}), ...entry });
   if (r.history.length > HISTORY_MAX) r.history.splice(0, r.history.length - HISTORY_MAX);
 }
 
@@ -67,7 +70,7 @@ function findReservation(id) {
 }
 
 /** Tables occupées par les autres réservations du même service (les clients partis les ont libérées). */
-function busyTables(reservation) {
+export function busyTables(reservation) {
   const service = serviceOf(reservation.time);
   return new Set(
     getDb()
@@ -98,7 +101,7 @@ function assertNotPinned(reservation) {
 }
 
 /** Essaie de placer automatiquement une réservation à placer (nouvelle ou changée de service). */
-function autoPlace(reservation) {
+export function autoPlace(reservation) {
   if (reservation.tableIds.length || !isActive(reservation)) return false;
   const db = getDb();
   const placement = autoAssign(db.tables, [reservation], busyTables(reservation), db.groups).get(reservation.id);
@@ -336,7 +339,7 @@ router.post('/', async (req, res) => {
   }
 
   if (openIt) setServiceDay(r.date, openIt, true);
-  addHistory(r, { type: 'created', people: r.people, date: r.date, time: r.time });
+  addHistory(r, req, { type: 'created', people: r.people, date: r.date, time: r.time });
   getDb().reservations.push(r);
   const notices = chosen.length
     ? placeOnChosenTables(r, chosen)
@@ -371,7 +374,7 @@ router.put('/:id', async (req, res) => {
   if (openIt) setServiceDay(next.date, openIt, true);
   const changes = changesBetween(current, next);
   Object.assign(current, next);
-  if (Object.keys(changes).length) addHistory(current, { type: 'edited', changes });
+  if (Object.keys(changes).length) addHistory(current, req, { type: 'edited', changes });
   let notices = [];
   if (changeTables && chosen.length) {
     notices = placeOnChosenTables(current, chosen);
@@ -390,7 +393,7 @@ router.post('/:id/cancel', async (req, res) => {
   if (isCancelled(r)) throw httpError(409, 'Réservation déjà annulée.');
   setTables(r, []);
   r.cancelledAt = new Date().toISOString();
-  addHistory(r, { type: 'cancelled' });
+  addHistory(r, req, { type: 'cancelled' });
   await persist();
   res.json(r);
 });
@@ -400,7 +403,7 @@ router.post('/:id/uncancel', async (req, res) => {
   const r = findReservation(req.params.id);
   if (!isCancelled(r)) throw httpError(409, 'Cette réservation n’est pas annulée.');
   delete r.cancelledAt;
-  addHistory(r, { type: 'restored' });
+  addHistory(r, req, { type: 'restored' });
   autoPlace(r);
   await persist();
   res.json(r);
@@ -519,7 +522,7 @@ router.post('/:id/status', async (req, res) => {
   if (status === 'left') reservation.leftAt = now;
   else delete reservation.leftAt;
   reservation.status = status;
-  if (from !== status) addHistory(reservation, { type: 'status', from, to: status });
+  if (from !== status) addHistory(reservation, req, { type: 'status', from, to: status });
 
   await persist();
   res.json({ reservation, conflict });

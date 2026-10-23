@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#141413" />
+  <title>Plan de salle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <!-- Tablette : menu (Modifier le plan, Paramètres, Se déconnecter) pour garder l'en-tête sur une ligne -->
+    <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="top-menu" id="topMenu" hidden role="menu">
+      <button type="button" role="menuitem" data-top="edit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        <span>Modifier le plan</span>
+      </button>
+      <button type="button" role="menuitem" data-top="settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Paramètres</span>
+      </button>
+      <button type="button" role="menuitem" data-top="lock">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <span>Se déconnecter</span>
+      </button>
+    </div>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Plan de salle</span>
+    </div>
+
+    <div class="controls">
+      <div class="date-nav">
+        <button class="icon-btn" id="prevDay" aria-label="Jour précédent">‹</button>
+        <!-- Valeur AAAA-MM-JJ ; le bouton l'affiche et ouvre le calendrier -->
+        <input type="hidden" id="date" />
+        <button type="button" class="picker-btn" data-picker="date" data-for="date" data-format="short" data-dots aria-label="Date du service"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+        <button class="icon-btn" id="nextDay" aria-label="Jour suivant">›</button>
+        <button class="btn ghost small" id="today">Aujourd'hui</button>
+      </div>
+      <!-- Ordinateur / tablette : les statistiques du service viennent ici (gain de place pour la liste) -->
+      <div class="top-stats" id="topStats"></div>
+      <!-- Services du jour affiché (ouverts, ou fermés mais avec des réservations) : remplis par l'application -->
+      <div class="service-ctl">
+        <div class="segmented" id="service" role="tablist" aria-label="Service"></div>
+        <button type="button" class="icon-btn small" id="dayServicesBtn" aria-label="Services du jour" title="Ouvrir ou fermer un service ce jour-là">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="icon-btn" id="lockBtn" title="Se déconnecter de cet appareil" aria-label="Se déconnecter">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      </button>
+      <button class="btn ghost" id="editToggle">Modifier le plan</button>
+      <button class="btn primary" id="newRes">Nouvelle réservation</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Liste des réservations -->
+    <aside class="panel" id="sidebar">
+      <div class="panel-head">
+        <div class="stats" id="stats"></div>
+        <div class="search-row">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input type="search" id="search" placeholder="Nom, nb de personnes, table (T12)…" autocomplete="off" aria-label="Rechercher une réservation" />
+            <button type="button" class="search-clear" id="searchClear" aria-label="Effacer la recherche" hidden>✕</button>
+          </div>
+          <button class="btn ghost small auto-btn" id="autoAssign" title="Placer automatiquement les réservations restantes">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></svg>
+            Auto
+          </button>
+          <button class="btn ghost small clear-btn" id="unassignAll" title="Retirer toutes les tables de ce service pour recommencer (les réservations fixées et les clients installés restent)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>Tout retirer</span>
+          </button>
+        </div>
+        <div class="filter-row">
+          <div class="filter-chips" id="filters" role="tablist" aria-label="Filtrer les réservations"></div>
+        </div>
+      </div>
+      <div class="time-strip" id="timeStrip" aria-label="Aller à un créneau"></div>
+      <ul class="res-list" id="resList"></ul>
+    </aside>
+
+    <!-- Inspecteur du mode édition -->
+    <aside class="panel" id="inspector" hidden></aside>
+
+    <section class="floor">
+      <!-- Tablette : « Nouvelle réservation » en haut à gauche du plan -->
+      <button type="button" class="btn primary plan-new" id="planNewRes">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Nouvelle réservation
+      </button>
+      <div class="plan-wrap" id="planWrap">
+        <div class="plan-stage" id="planStage">
+          <div class="plan" id="plan"></div>
+        </div>
+      </div>
+      <div class="grouping-bar" id="groupingBar" hidden></div>
+      <div class="grouping-bar placing-bar" id="placingBar" hidden></div>
+      <!-- Choix des tables depuis le formulaire de réservation -->
+      <div class="grouping-bar pick-bar" id="pickBar" hidden></div>
+      <div class="zoom">
+        <button class="icon-btn small pan-toggle" id="panToggle" aria-label="Déplacer la vue"
+          title="Déplacer la vue : glisser le fond fait défiler le plan au lieu de sélectionner">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+        </button>
+        <button class="icon-btn small" id="zoomOut" aria-label="Dézoomer">−</button>
+        <button class="zoom-value" id="zoomFit" title="Ajuster à l'écran">100%</button>
+        <button class="icon-btn small" id="zoomIn" aria-label="Zoomer">+</button>
+      </div>
+      <div class="legend">
+        <span><i class="dot free"></i>Libre</span>
+        <span><i class="dot reserved"></i>Réservée</span>
+        <span><i class="dot busy"></i>Clients arrivés</span>
+        <span><i class="dot merged"></i>Fusionnée</span>
+        <span><i class="dot pinned"></i>Fixée</span>
+        <span><i class="dot link"></i>Fusionnable</span>
+        <span><i class="dot manual"></i>Lien manuel</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- Téléphone : fiche de la table touchée sur le plan -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <section class="sheet" id="tableSheet" hidden aria-live="polite"></section>
+
+  <!-- Téléphone : navigation entre la liste et le plan -->
+  <nav class="bottom-nav" id="bottomNav" aria-label="Navigation">
+    <button type="button" data-view="list">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+      <span id="navListLabel">Réservations</span><b class="nav-badge" id="navTodo" hidden></b>
+    </button>
+    <button type="button" data-view="plan">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+      <span>Plan</span>
+    </button>
+    <button type="button" id="navNew">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Nouvelle</span>
+    </button>
+    <button type="button" id="navMore" aria-haspopup="true" aria-expanded="false">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      <span>Plus</span>
+    </button>
+  </nav>
+  <div class="more-menu" id="moreMenu" hidden role="menu">
+    <button type="button" role="menuitem" data-more="today">Aller à aujourd’hui</button>
+    <button type="button" role="menuitem" data-more="services">Services du jour…</button>
+    <button type="button" role="menuitem" data-more="edit">Modifier le plan</button>
+    <button type="button" role="menuitem" data-more="settings">Paramètres</button>
+    <button type="button" role="menuitem" data-more="lock">Se déconnecter</button>
+  </div>
+
+  <!-- Fiche d'une réservation (toucher une carte) : détails et actions -->
+  <dialog id="resDetail" class="detail" aria-labelledby="detailName"></dialog>
+
+  <!-- Services d'une date : ouvrir / fermer pour ce jour-là -->
+  <dialog id="dayServices" class="detail" aria-labelledby="dayServicesTitle"></dialog>
+
+  <dialog id="resDialog">
+    <form id="resForm" novalidate>
+      <h2 id="resDialogTitle">Nouvelle réservation</h2>
+      <label class="field">
+        <span>Nom</span>
+        <input name="name" required autocomplete="off" />
+      </label>
+      <div class="row">
+        <label class="field">
+          <span>Personnes</span>
+          <input name="people" type="number" min="1" max="50" value="2" required />
+        </label>
+        <div class="field">
+          <span>Date</span>
+          <input type="hidden" name="date" id="resDate" />
+          <button type="button" class="picker-btn" data-picker="date" data-for="resDate" data-format="medium" data-dots><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+        </div>
+        <div class="field">
+          <span>Heure</span>
+          <input type="hidden" name="time" id="resTime" />
+          <button type="button" class="picker-btn" data-picker="time" data-for="resTime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span></span></button>
+          <em class="time-hint" id="timeHint"></em>
+        </div>
+      </div>
+      <div class="row table-row">
+        <label class="field">
+          <span>Tables <em>— vide : choisie automatiquement</em></span>
+          <input name="tables" autocomplete="off" placeholder="ex. 12, 66-70" />
+        </label>
+        <button type="button" class="btn ghost pick-btn" id="pickOnPlan" title="Voir le plan de ce service et toucher les tables à attribuer">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+          Sur le plan
+        </button>
+        <label class="switch"><input type="checkbox" name="pinned" /><span></span>Fixer à cette table</label>
+      </div>
+      <div class="row">
+        <label class="field">
+          <span>Téléphone</span>
+          <input name="phone" type="tel" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input name="email" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        </label>
+      </div>
+      <label class="field">
+        <span>Demande du client</span>
+        <textarea name="notes" rows="2" placeholder="Anniversaire, chaise bébé, allergie…"></textarea>
+      </label>
+      <label class="field internal-field">
+        <span>Note interne <em>— visible uniquement par l'équipe</em></span>
+        <textarea name="internalNote" rows="2" placeholder="Habitué, client exigeant, acompte versé…"></textarea>
+      </label>
+      <p class="form-error" id="formError"></p>
+      <!-- Aucune table libre : la réservation n'est pas enregistrée, on propose la suite -->
+      <div class="no-table" id="noTableBox" hidden>
+        <p id="noTableText"></p>
+        <div class="no-table-actions">
+          <button type="button" class="btn ghost small" id="noTablePick">Choisir sur le plan</button>
+          <button type="button" class="btn small no-table-save" id="noTableSave">Enregistrer sans table</button>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn danger ghost" id="deleteRes">Annuler la réservation</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="cancelRes">Annuler</button>
+        <button type="submit" class="btn primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Paramètres : services, données des clients, comptes (page à part, par-dessus l'application) -->
+  <section class="settings-page" id="settingsPage" hidden aria-labelledby="settingsTitle">
+    <header class="settings-head">
+      <button type="button" class="btn ghost small settings-back" id="settingsBack">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        <span>Retour</span>
+      </button>
+      <h1 id="settingsTitle">Paramètres</h1>
+      <span class="settings-user" id="settingsUser"></span>
+    </header>
+    <div class="settings-layout">
+      <nav class="settings-nav" id="settingsNav" aria-label="Sections des paramètres"></nav>
+      <div class="settings-body" id="settingsBody"></div>
+    </div>
+  </section>
+
+  <!-- Connexion avec un compte de l'équipe (protège les données clients) -->
+  <div class="auth-screen" id="authScreen" hidden>
+    <form class="auth-card" id="authForm" novalidate>
+      <span class="brand-mark auth-mark" aria-hidden="true"></span>
+      <h1 id="authTitle">Plan de salle</h1>
+      <p class="muted" id="authText">Connectez-vous avec votre compte.</p>
+      <input id="authName" type="text" maxlength="60" autocomplete="name" placeholder="Votre nom" aria-label="Nom" hidden />
+      <input id="authEmail" type="email" maxlength="120" autocomplete="username" autocapitalize="off" spellcheck="false"
+        placeholder="Email" aria-label="Email" />
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Mot de passe" aria-label="Mot de passe" />
+      <input id="authPassword2" type="password" autocomplete="new-password" placeholder="Confirmer le mot de passe"
+        aria-label="Confirmer le mot de passe" hidden />
+      <p class="form-error" id="authError"></p>
+      <button class="btn primary" type="submit" id="authSubmit">Se connecter</button>
+    </form>
+  </div>
+
+  <!-- Liaison avec le serveur perdue -->
+  <div class="offline-banner" id="offlineBanner" hidden>
+    Connexion au serveur perdue — reconnexion en cours… Les modifications faites maintenant ne seront pas enregistrées.
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -50,8 +50,8 @@ before(async () => {
     server.stdout.on('data', (d) => String(d).includes('démarrée') && resolve());
     server.on('exit', (code) => reject(new Error(`serveur arrêté (${code})`)));
   });
-  // Code d'accès de test (base temporaire uniquement)
-  const res = await fetch(`${URL}/auth/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '2468' }) });
+  // Compte administrateur de test (base temporaire uniquement)
+  const res = await fetch(`${URL}/auth/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Admin', email: 'admin@test.local', password: 'motdepasse-test' }) });
   cookie = res.headers.get('set-cookie').split(';')[0];
 });
 
@@ -226,6 +226,7 @@ test('historique : création, modifications (pas les tables), changements d’é
   assert.deepEqual(types, ['created', 'edited', 'status', 'status']);
   assert.deepEqual(saved.history[0], { ...saved.history[0], people: 4, time: '20:00' });
   assert.deepEqual(saved.history[1].changes, { people: [4, 6], time: ['20:00', '20:30'] });
+  assert.ok(saved.history.every((h) => h.by === 'Admin')); // auteur de chaque changement
   assert.deepEqual([saved.history[2].from, saved.history[2].to], ['expected', 'arrived']);
   assert.deepEqual([saved.history[3].from, saved.history[3].to], ['arrived', 'left']);
 });

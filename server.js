@@ -3,13 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initStore, scheduleBackups } from './src/store.js';
-import authRouter, { requireAuth, isConfigured } from './src/auth.js';
+import authRouter, { requireAuth, isConfigured, usersRouter } from './src/auth.js';
 import { eventsHandler, notifyChanges } from './src/events.js';
 import planRouter from './src/routes/plan.js';
 import tablesRouter from './src/routes/tables.js';
 import reservationsRouter from './src/routes/reservations.js';
 import settingsRouter from './src/routes/settings.js';
 import servicesRouter from './src/routes/services.js';
+import publicRouter from './src/routes/public.js';
 import { loadServices } from './src/services.js';
 import { scheduleRetention } from './src/retention.js';
 
@@ -28,12 +29,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Page publique de réservation (/) ; application de l'équipe (/gestion)
+app.get(['/gestion', '/gestion/'], (req, res) => res.sendFile(path.join(__dirname, 'public', 'gestion.html')));
 // Front-end + code partagé entre client et serveur (règles de fusion)
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 
-// Code d'accès : tout le reste de l'API est réservé aux appareils connectés
+// Comptes : tout le reste de l'API est réservé aux utilisateurs connectés
 app.use('/api/auth', authRouter);
+app.use('/api/public', publicRouter); // réservation en ligne par les clients (sans compte)
 app.use('/api', requireAuth);
 
 // Synchronisation en direct entre appareils
@@ -45,6 +49,7 @@ app.use('/api/tables', tablesRouter);
 app.use('/api/reservations', reservationsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/services', servicesRouter);
+app.use('/api/users', usersRouter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }));
 
@@ -68,8 +73,9 @@ scheduleBackups();
 scheduleRetention(); // archivage + anonymisation des anciennes réservations, une fois par jour
 app.listen(PORT, () => {
   console.log(`\nGestion des tables — démarrée`);
-  console.log(`  Sur cet ordinateur : http://localhost:${PORT}`);
-  for (const url of lanAddresses()) console.log(`  Sur les tablettes   : ${url}`);
-  if (!isConfigured()) console.log(`\n  ⚠ Ouvrez d'abord http://localhost:${PORT} sur cet ordinateur pour créer le code d'accès.`);
+  console.log(`  Équipe, sur cet ordinateur : http://localhost:${PORT}/gestion`);
+  for (const url of lanAddresses()) console.log(`  Équipe, sur les tablettes   : ${url}/gestion`);
+  console.log(`  Réservation des clients    : http://localhost:${PORT}/`);
+  if (!isConfigured()) console.log(`\n  ⚠ Ouvrez d'abord http://localhost:${PORT}/gestion sur cet ordinateur pour créer le compte administrateur.`);
   console.log('');
 });

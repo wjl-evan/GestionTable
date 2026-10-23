@@ -1,4 +1,4 @@
-import { api, auth, AuthError, CLIENT_ID, setAuthHandler } from './api.js';
+import { api, auth, users, AuthError, CLIENT_ID, setAuthHandler } from './api.js';
 import { initPickers, refreshPickers } from './pickers.js';
 import {
   areAdjacent, buildGraph, capacityOf, findCombination, groupOf, isActive, serviceOf, setKey, spanningEdges, statusOf,
@@ -9,6 +9,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const SNAP = 10;
 
 const state = {
+  user: null, // compte connecté : { id, name, email, role }
   formPick: null, // choix des tables sur le plan depuis le formulaire : { tableIds, name, people }
   room: { w: 1000, h: 620 },
   zones: [],
@@ -74,6 +75,7 @@ const els = {
   resList: $('#resList'),
   sidebar: $('#sidebar'),
   inspector: $('#inspector'),
+  settings: $('#settingsBody'),
   stats: $('#stats'),
   date: $('#date'),
   dialog: $('#resDialog'),
@@ -315,8 +317,7 @@ dayServicesEl.addEventListener('click', async (e) => {
   if (e.target === dayServicesEl || e.target.closest('[data-ds="close"]')) return dayServicesEl.close();
   if (e.target.closest('[data-ds="manage"]')) {
     dayServicesEl.close();
-    if (!state.editMode) $('#editToggle').click();
-    requestAnimationFrame(() => $('#servicesForm', els.inspector)?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    openSettings('services');
     return;
   }
   if (e.target.closest('[data-ds="reset"]')) {
@@ -380,7 +381,7 @@ function renderControls() {
   document.body.classList.toggle('linking', Boolean(state.linking));
   document.body.dataset.view = state.view;
   for (const b of document.querySelectorAll('#bottomNav [data-view]')) b.classList.toggle('active', b.dataset.view === state.view);
-  $('#navListLabel').textContent = state.editMode ? 'Réglages' : 'Réservations';
+  $('#navListLabel').textContent = state.editMode ? 'Édition' : 'Réservations';
 }
 
 function renderStats() {
@@ -415,6 +416,7 @@ const svg = (d, size = 14) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
   people: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>', 13),
+  mail: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/>', 12),
   phone: svg('<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/>', 12),
   quote: svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>', 12),
   pin: svg('<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>', 12),
@@ -483,7 +485,7 @@ function cardHtml(r) {
   // Ligne 1 : nom, nombre de personnes, action principale. Ligne 2 : statut, table. Puis les notes, s'il y en a.
   return `
     <div class="rc-head">
-      <span class="rc-name">${highlight(r.name, state.search)}</span>
+      <span class="rc-name">${highlight(r.name, state.search)}${r.source === 'online' ? ' <span class="online-tag" title="Réservée par le client sur la page de réservation">En ligne</span>' : ''}</span>
       <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
       ${r.archived ? '' : `<span class="rc-main">${mainActionHtml(r, status)}</span>`}
       <span class="rc-sub">
@@ -536,7 +538,7 @@ function renderList() {
   if (all.some((r) => r.archived)) {
     const note = document.createElement('li');
     note.className = 'archived-note';
-    note.textContent = 'Service archivé : consultation seule. Les noms et téléphones sont effacés au bout de la durée de conservation (réglable dans « Modifier le plan »).';
+    note.textContent = 'Service archivé : consultation seule. Les noms et téléphones sont effacés au bout de la durée de conservation (réglable dans « Paramètres »).';
     frag.append(note);
   }
   if (state.search) {
@@ -663,6 +665,7 @@ function renderDetail() {
     row(ICONS.clock, 'Quand', `${esc(longDate(r.date))} · <b>${esc(r.time)}</b>`),
     row(ICONS.table, 'Tables', `${tables}${placed && status !== 'left' ? ` <span class="muted">${capacity} places</span>` : ''}`),
     r.phone ? row(ICONS.phone, 'Téléphone', `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}">${esc(r.phone)}</a>`) : '',
+    r.email ? row(ICONS.mail, 'Email', `<a class="rc-phone" href="mailto:${esc(r.email)}">${esc(r.email)}</a>`) : '',
     r.notes ? row(ICONS.quote, 'Demande', esc(r.notes)) : '',
   ].join('');
 
@@ -711,7 +714,7 @@ function renderDetail() {
 /* ---------- Historique d'une réservation ---------- */
 
 const FIELD_LABEL = {
-  name: 'Nom', people: 'Personnes', date: 'Date', time: 'Heure', phone: 'Téléphone', notes: 'Demande', internalNote: 'Note interne',
+  name: 'Nom', people: 'Personnes', date: 'Date', time: 'Heure', phone: 'Téléphone', email: 'Email', notes: 'Demande', internalNote: 'Note interne',
 };
 const STATUS_WORD = { expected: 'attendu', arrived: 'arrivé', left: 'parti' };
 
@@ -759,7 +762,7 @@ function historyHtml(r) {
   // Réservations d'avant l'historique : on montre au moins sa création
   if (!list.length && r.createdAt) list = [{ type: 'created', at: r.createdAt }];
   if (!list.length) return '';
-  const items = [...list].reverse().map((h) => `<li class="hist-${h.type}"><time>${esc(whenLabel(h.at))}</time><span>${esc(historyLine(h))}</span></li>`);
+  const items = [...list].reverse().map((h) => `<li class="hist-${h.type}"><time>${esc(whenLabel(h.at))}${h.by ? ` · ${esc(h.by)}` : ''}</time><span>${esc(historyLine(h))}</span></li>`);
   return `<details class="dt-history"${list.length <= 4 ? ' open' : ''}>
       <summary>Historique <span class="muted">(${list.length})</span></summary>
       <ol>${items.join('')}</ol>
@@ -1154,7 +1157,7 @@ const WEEK_FULL = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 
 const clockIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 
 function renderServicesForm() {
-  const form = $('#servicesForm', els.inspector);
+  const form = $('#servicesForm', els.settings);
   if (!form) return;
   servicesDraft ??= getServices().map((sv) => ({ ...sv, days: [...sv.days] }));
   form.innerHTML = `
@@ -1188,7 +1191,7 @@ function renderServicesForm() {
 /** État de l'enregistrement, sous la liste (« Enregistré ✓ », ou ce qui empêche d'enregistrer). */
 function setServicesStatus(text, warn = false) {
   servicesStatus = { text, warn };
-  const el = $('#svcStatus', els.inspector);
+  const el = $('#svcStatus', els.settings);
   if (!el) return;
   el.textContent = text;
   el.classList.toggle('warn', warn);
@@ -1218,11 +1221,7 @@ async function saveServicesNow() {
     }
     servicesDirty = false;
     setServicesStatus('Enregistré ✓');
-    // On ne redessine pas les réglages pendant qu'on tape : seulement l'en-tête et la liste
-    if (document.activeElement?.closest?.('#servicesForm')) {
-      renderControls();
-      renderList();
-    } else render();
+    render();
     return true;
   } catch (err) {
     setServicesStatus(`Non enregistré : ${err.message}`, true);
@@ -1231,7 +1230,7 @@ async function saveServicesNow() {
 }
 
 function bindServicesForm() {
-  const form = $('#servicesForm', els.inspector);
+  const form = $('#servicesForm', els.settings);
   if (!form) return;
   renderServicesForm();
   const rowOf = (el) => servicesDraft[Number(el.closest('.svc-row')?.dataset.i)];
@@ -1289,7 +1288,7 @@ const frDate = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
 
 /** Remplit le formulaire « Données des clients » (depuis le cache, ou en le chargeant). */
 async function fillRetentionForm(refresh = false) {
-  const form = $('#retentionForm', els.inspector);
+  const form = $('#retentionForm', els.settings);
   if (!form) return;
   try {
     if (refresh || !retentionCache) retentionCache = await api.settings();
@@ -1312,7 +1311,7 @@ async function fillRetentionForm(refresh = false) {
 }
 
 function bindRetentionForm() {
-  const form = $('#retentionForm', els.inspector);
+  const form = $('#retentionForm', els.settings);
   fillRetentionForm();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1332,6 +1331,377 @@ function bindRetentionForm() {
       toast(err.message, 'error');
     }
   });
+}
+
+/* ---------- Réservation en ligne (réglages de la page publique) ---------- */
+
+const NOTICE_CHOICES = [0, 15, 30, 60, 120, 180, 360, 720, 1440, 2880];
+const noticeLabel = (m) => (m === 0 ? 'Aucun' : m < 60 ? `${m} min` : m % 1440 === 0 ? `${m / 1440} jour${m > 1440 ? 's' : ''}` : `${m / 60} h`);
+
+function bookingSettingsHtml() {
+  return `<h2>Réservation en ligne</h2>
+    <p class="muted">Ce que les clients peuvent réserver eux-mêmes sur la page publique. <a href="/" target="_blank" rel="noopener">Voir la page ↗</a></p>
+    <p class="form-error" id="bookingError"></p>
+    <form class="item-form" id="bookingForm" novalidate hidden>
+      <div class="settings-card item-form">
+        <label class="switch"><input type="checkbox" name="enabled" /><span></span><b>Réservation en ligne ouverte</b></label>
+        <label class="field"><span>Message si elle est fermée <em>— facultatif</em></span>
+          <textarea name="closedMessage" rows="2" maxlength="300" placeholder="La réservation en ligne est fermée pour le moment. Appelez-nous !"></textarea></label>
+      </div>
+
+      <div class="settings-card item-form">
+        <div class="section-label">Page publique</div>
+        <div class="row">
+          <label class="field"><span>Nom du restaurant</span><input name="restaurantName" maxlength="60" placeholder="Affiché en haut de la page" /></label>
+          <label class="field"><span>Téléphone du restaurant</span><input name="restaurantPhone" type="tel" maxlength="30" /></label>
+        </div>
+        <label class="field"><span>Informations pour les clients <em>— facultatif</em></span>
+          <textarea name="message" rows="2" maxlength="400" placeholder="Terrasse fermée en hiver, menu du jour le midi…"></textarea></label>
+      </div>
+
+      <div class="settings-card item-form">
+        <div class="section-label">Quand réserver</div>
+        <div class="row">
+          <label class="field"><span>Délai minimum avant le créneau</span><select name="minNoticeMinutes">${NOTICE_CHOICES.map((m) => `<option value="${m}">${noticeLabel(m)}</option>`).join('')}</select></label>
+          <label class="field"><span>Jusqu'à</span>
+            <span class="unit-input"><input name="maxDays" type="number" min="1" max="365" inputmode="numeric" /><em>jours à l'avance</em></span></label>
+        </div>
+        <label class="field"><span>Créneaux proposés</span>
+          <select name="step"><option value="15">Toutes les 15 min</option><option value="30">Toutes les 30 min</option><option value="60">Toutes les heures</option></select></label>
+        <p class="muted small-note">Les créneaux vont de l'heure de début à la dernière heure de réservation de chaque service (onglet Services).</p>
+      </div>
+
+      <div class="settings-card item-form">
+        <div class="section-label">Groupes et capacité</div>
+        <div class="row">
+          <label class="field"><span>Personnes au maximum</span>
+            <span class="unit-input"><input name="maxPeople" type="number" min="1" max="50" inputmode="numeric" /><em>pers.</em></span></label>
+          <label class="field"><span>Couverts par créneau</span>
+            <span class="unit-input"><input name="maxCoversPerSlot" type="number" min="0" max="500" inputmode="numeric" /><em>0 = sans limite</em></span></label>
+        </div>
+        <p class="muted small-note">Au-delà du maximum de personnes, le client est invité à appeler. Les couverts par créneau comptent toutes les
+        réservations à la même heure (en ligne et par l'équipe) : utile pour étaler les arrivées en cuisine. Dans tous les cas,
+        une réservation en ligne n'est acceptée que s'il reste une table libre.</p>
+      </div>
+
+      <div class="settings-card item-form">
+        <div class="section-label">Coordonnées demandées</div>
+        <label class="switch"><input type="checkbox" name="requireEmail" /><span></span>Email obligatoire</label>
+        <label class="switch"><input type="checkbox" name="requirePhone" /><span></span>Téléphone obligatoire</label>
+        <p class="muted small-note">Le nom est toujours demandé ; la demande particulière reste facultative.</p>
+      </div>
+
+      <div class="row booking-save">
+        <button type="submit" class="btn primary small" disabled>Enregistrer</button>
+        <span class="muted small-note" id="bookingStatus" role="status"></span>
+      </div>
+    </form>`;
+}
+
+let bookingCache = null;
+
+/** Erreur de chargement ou d'enregistrement ; 404 = serveur pas encore redémarré après une mise à jour. */
+const bookingErrorText = (err) =>
+  err.message === 'Route inconnue'
+    ? 'Le serveur ne connaît pas encore ces réglages : redémarrez-le (fermez la fenêtre du serveur et relancez demarrer.bat) pour appliquer la mise à jour.'
+    : err.message;
+
+async function fillBookingForm() {
+  const form = $('#bookingForm', els.settings);
+  if (!form) return;
+  const save = form.querySelector('button[type="submit"]');
+  try {
+    bookingCache = await api.bookingSettings();
+  } catch (err) {
+    if (err instanceof AuthError) return;
+    // Sans les réglages actuels, on n'affiche ni n'enregistre rien (on écraserait les vrais réglages par ceux par défaut)
+    $('#bookingError', els.settings).textContent = `Impossible de charger les réglages. ${bookingErrorText(err)}`;
+    form.hidden = true;
+    save.disabled = true;
+    return;
+  }
+  $('#bookingError', els.settings).textContent = '';
+  form.hidden = false;
+  save.disabled = false;
+  const s = bookingCache;
+  // Valeur réglée hors de la liste (ex. 90 min via l'API) : ajoutée pour ne pas la perdre
+  if (!NOTICE_CHOICES.includes(s.minNoticeMinutes)) {
+    form.minNoticeMinutes.insertAdjacentHTML('beforeend', `<option value="${s.minNoticeMinutes}">${noticeLabel(s.minNoticeMinutes)}</option>`);
+  }
+  for (const key of ['enabled', 'requireEmail', 'requirePhone']) form[key].checked = s[key];
+  for (const key of ['restaurantName', 'restaurantPhone', 'message', 'closedMessage', 'minNoticeMinutes', 'maxDays', 'step', 'maxPeople', 'maxCoversPerSlot']) {
+    form[key].value = s[key];
+  }
+  syncBookingForm(form);
+}
+
+/** Le message « fermé » ne sert que si la réservation en ligne est fermée. */
+function syncBookingForm(form) {
+  form.closedMessage.closest('.field').hidden = form.enabled.checked;
+}
+
+function bindBookingForm() {
+  const form = $('#bookingForm', els.settings);
+  fillBookingForm();
+  form.enabled.addEventListener('change', () => syncBookingForm(form));
+  form.addEventListener('input', () => ($('#bookingStatus', form).textContent = 'Modifications non enregistrées'));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(
+      ['restaurantName', 'restaurantPhone', 'message', 'closedMessage'].map((k) => [k, form[k].value])
+    );
+    for (const key of ['enabled', 'requireEmail', 'requirePhone']) data[key] = form[key].checked;
+    for (const key of ['minNoticeMinutes', 'maxDays', 'step', 'maxPeople', 'maxCoversPerSlot']) data[key] = Number(form[key].value);
+    try {
+      bookingCache = await api.updateBookingSettings(data);
+      $('#bookingStatus', form).textContent = 'Enregistré ✓';
+      toast('Réglages de la réservation en ligne enregistrés', 'success');
+    } catch (err) {
+      $('#bookingStatus', form).textContent = `Non enregistré : ${bookingErrorText(err)}`;
+      toast(bookingErrorText(err), 'error');
+    }
+  });
+}
+
+/* ---------- Comptes ---------- */
+
+const ROLE_LABEL = { admin: 'Administrateur', staff: 'Équipe' };
+
+function bindPasswordForm() {
+  $('#passwordForm', els.settings).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    try {
+      await auth.changePassword(form.current.value, form.password.value);
+      form.reset();
+      toast('Mot de passe changé — vos autres appareils devront se reconnecter', 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+function bindUsersBox() {
+  $('#addUser', els.settings).addEventListener('click', () => openUserForm(null));
+  loadUsers();
+}
+
+let usersCache = [];
+
+async function loadUsers() {
+  try {
+    usersCache = await users.list();
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message, 'error');
+    return;
+  }
+  const list = $('#userList', els.settings);
+  if (!list) return; // l'inspecteur a été redessiné entre-temps
+  list.innerHTML = usersCache
+    .map((u) => `<li class="user-row">
+        <div><strong>${esc(u.name)}${u.id === state.user.id ? ' <span class="muted">(vous)</span>' : ''}</strong><span class="muted">${esc(u.email)}</span></div>
+        <span class="role-badge ${u.role}">${ROLE_LABEL[u.role] ?? u.role}</span>
+        <button type="button" class="btn ghost small" data-edit-user="${esc(u.id)}">Modifier</button>
+      </li>`)
+    .join('');
+  list.querySelectorAll('[data-edit-user]').forEach((b) =>
+    b.addEventListener('click', () => openUserForm(usersCache.find((u) => u.id === b.dataset.editUser)))
+  );
+}
+
+/** Formulaire d'ajout (u = null) ou de modification d'un compte. */
+function openUserForm(u) {
+  const form = $('#userForm', els.settings);
+  const self = u?.id === state.user.id;
+  form.hidden = false;
+  form.innerHTML = `
+    <strong>${u ? `Modifier « ${esc(u.name)} »` : 'Nouveau compte'}</strong>
+    <label class="field"><span>Nom</span><input name="name" maxlength="60" autocomplete="off" value="${esc(u?.name ?? '')}" /></label>
+    <label class="field"><span>Email</span><input name="email" type="email" maxlength="120" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(u?.email ?? '')}" /></label>
+    <label class="field"><span>${u ? 'Nouveau mot de passe <em>— vide pour le garder</em>' : 'Mot de passe'}</span>
+      <input name="password" type="password" minlength="8" autocomplete="new-password" /></label>
+    <label class="field"><span>Rôle</span>
+      <select name="role" ${self ? 'disabled title="Vous ne pouvez pas changer votre propre rôle"' : ''}>
+        <option value="staff" ${u?.role !== 'admin' ? 'selected' : ''}>Équipe — réservations et plan</option>
+        <option value="admin" ${u?.role === 'admin' ? 'selected' : ''}>Administrateur — gère aussi les comptes</option>
+      </select></label>
+    <div class="row">
+      <button type="submit" class="btn primary small">${u ? 'Enregistrer' : 'Créer le compte'}</button>
+      <button type="button" class="btn ghost small" data-close>Annuler</button>
+      ${u && !self ? '<button type="button" class="btn danger ghost small" data-delete>Supprimer</button>' : ''}
+    </div>
+    <p class="muted small-note">8 caractères minimum pour le mot de passe.${u ? ' Le changer déconnecte ce compte de ses appareils.' : ''}</p>`;
+  const close = () => {
+    form.hidden = true;
+    form.innerHTML = '';
+  };
+  form.querySelector('[data-close]').addEventListener('click', close);
+  form.querySelector('[data-delete]')?.addEventListener('click', async () => {
+    if (!confirm(`Supprimer le compte de ${u.name} (${u.email}) ?\nCette personne ne pourra plus se connecter.`)) return;
+    try {
+      await users.remove(u.id);
+      toast(`Compte de ${u.name} supprimé`, 'success');
+      close();
+      loadUsers();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const data = { name: form.name.value, email: form.email.value };
+    if (!self) data.role = form.role.value;
+    if (form.password.value || !u) data.password = form.password.value;
+    try {
+      const saved = u ? await users.update(u.id, data) : await users.create(data);
+      if (self) state.user = saved;
+      toast(u ? 'Compte modifié' : `Compte de ${saved.name} créé`, 'success');
+      close();
+      loadUsers();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+  form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  form.name.focus();
+}
+
+/* ---------- Page Paramètres ---------- */
+
+const settingsEls = { page: $('#settingsPage'), nav: $('#settingsNav'), user: $('#settingsUser') };
+const SETTINGS_TABS = [
+  { id: 'services', label: 'Services', icon: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>' },
+  { id: 'booking', label: 'Réservation en ligne', icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>' },
+  { id: 'data', label: 'Données des clients', icon: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>' },
+  { id: 'account', label: 'Mon compte', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>' },
+  { id: 'users', label: 'Comptes de l’équipe', admin: true, icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.6 3.5 5.2"/>' },
+];
+let settingsTab = 'services';
+const settingsOpen = () => !settingsEls.page.hidden;
+const allowedTabs = () => SETTINGS_TABS.filter((t) => !t.admin || state.user?.role === 'admin');
+
+function settingsHtml(tab) {
+  if (tab === 'services') {
+    return `<h2>Services</h2>
+      <p class="muted">Matin, midi, soir… avec leurs horaires de réservation et leurs jours d'ouverture habituels. Enregistré automatiquement.</p>
+      <div class="settings-card"><form class="item-form services-form" id="servicesForm" novalidate></form></div>`;
+  }
+  if (tab === 'booking') return bookingSettingsHtml();
+  if (tab === 'data') {
+    return `<h2>Données des clients</h2>
+      <p class="muted">Combien de temps garder les réservations passées et les coordonnées des clients.</p>
+      <div class="settings-card">
+        <form class="item-form" id="retentionForm" novalidate>
+          <div class="row">
+            <label class="field"><span>Archiver après</span>
+              <span class="unit-input"><input name="archiveAfterDays" type="number" min="14" max="365" inputmode="numeric" /><em>jours</em></span></label>
+            <label class="field"><span>Effacer nom et tél. après</span>
+              <span class="unit-input"><input name="anonymizeAfterMonths" type="number" min="1" max="36" inputmode="numeric" /><em>mois</em></span></label>
+          </div>
+          <button type="submit" class="btn ghost small">Enregistrer</button>
+          <p class="muted small-note" id="retentionInfo">Chargement…</p>
+        </form>
+      </div>`;
+  }
+  if (tab === 'account') {
+    return `<h2>Mon compte</h2>
+      <div class="settings-card">
+        <form class="item-form" id="passwordForm" novalidate>
+          <p class="account-me"><strong>${esc(state.user?.name ?? '')}</strong><span class="muted">${esc(state.user?.email ?? '')} · ${ROLE_LABEL[state.user?.role] ?? ''}</span></p>
+          <input type="email" name="username" value="${esc(state.user?.email ?? '')}" autocomplete="username" hidden />
+          <div class="row">
+            <label class="field"><span>Mot de passe actuel</span><input name="current" type="password" autocomplete="current-password" /></label>
+            <label class="field"><span>Nouveau mot de passe</span><input name="password" type="password" minlength="8" autocomplete="new-password" /></label>
+          </div>
+          <button type="submit" class="btn ghost small">Changer mon mot de passe</button>
+          <p class="muted small-note">8 caractères minimum. Vos autres appareils devront se reconnecter.</p>
+        </form>
+      </div>
+      <div class="settings-card">
+        <button type="button" class="btn danger ghost small" id="settingsLogout">Se déconnecter de cet appareil</button>
+      </div>`;
+  }
+  return `<h2>Comptes de l’équipe</h2>
+    <p class="muted">Chaque personne se connecte avec son email et son mot de passe. Les administrateurs gèrent aussi les comptes.</p>
+    <div class="settings-card">
+      <div class="item-form" id="usersBox">
+        <ul class="user-list" id="userList"><li class="muted small-note">Chargement…</li></ul>
+        <button type="button" class="btn ghost small" id="addUser">Ajouter un compte</button>
+        <form class="item-form user-form" id="userForm" novalidate hidden></form>
+      </div>
+    </div>`;
+}
+
+function renderSettings() {
+  const tabs = allowedTabs();
+  if (!tabs.some((t) => t.id === settingsTab)) settingsTab = tabs[0].id;
+  settingsEls.user.textContent = state.user ? `${state.user.name} · ${ROLE_LABEL[state.user.role] ?? ''}` : '';
+  settingsEls.nav.innerHTML = tabs
+    .map((t) => `<button type="button" data-settings-tab="${t.id}" class="${t.id === settingsTab ? 'active' : ''}"${t.id === settingsTab ? ' aria-current="page"' : ''}>${svg(t.icon, 16)}<span>${t.label}</span></button>`)
+    .join('');
+  els.settings.innerHTML = `<section class="settings-section">${settingsHtml(settingsTab)}</section>`;
+  els.settings.scrollTop = 0;
+  if (settingsTab === 'services') bindServicesForm();
+  if (settingsTab === 'booking') bindBookingForm();
+  if (settingsTab === 'data') bindRetentionForm();
+  if (settingsTab === 'account') {
+    bindPasswordForm();
+    $('#settingsLogout', els.settings).addEventListener('click', () => $('#lockBtn').click());
+  }
+  if (settingsTab === 'users') bindUsersBox();
+}
+
+/** Services modifiés mais pas encore enregistrés : on enregistre, ou on demande avant de les perdre. */
+async function leaveServicesTab() {
+  if (!servicesDirty || (await saveServicesNow())) return true;
+  return confirm(`Les services n'ont pas pu être enregistrés :\n${servicesStatus.text.replace(/^Non enregistré : /, '')}\n\nContinuer quand même (les modifications des services seront perdues) ?`);
+}
+
+function resetServicesDraft() {
+  servicesDraft = null;
+  servicesDirty = false;
+  servicesStatus = { text: '', warn: false };
+}
+
+function openSettings(tab = settingsTab) {
+  settingsTab = tab;
+  retentionCache = null; // chiffres à jour à chaque ouverture
+  resetServicesDraft();
+  settingsEls.page.hidden = false;
+  renderSettings();
+}
+
+async function closeSettings() {
+  if (settingsTab === 'services' && !(await leaveServicesTab())) return;
+  settingsEls.page.hidden = true;
+  els.settings.innerHTML = '';
+  resetServicesDraft();
+  render();
+}
+
+settingsEls.nav.addEventListener('click', async (e) => {
+  const tab = e.target.closest('[data-settings-tab]')?.dataset.settingsTab;
+  if (!tab || tab === settingsTab) return;
+  if (settingsTab === 'services' && !(await leaveServicesTab())) return;
+  resetServicesDraft();
+  settingsTab = tab;
+  renderSettings();
+});
+$('#settingsBack').addEventListener('click', closeSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsOpen() && !document.querySelector('dialog[open]')) closeSettings();
+});
+
+/** Changements venus d'un autre appareil : on met à jour l'onglet affiché, sans casser une saisie. */
+function refreshSettings() {
+  if (!settingsOpen() || document.activeElement?.closest?.('#settingsBody input, #settingsBody select')) return;
+  if (settingsTab === 'data') fillRetentionForm(true);
+  if (settingsTab === 'booking' && !$('#bookingStatus', els.settings)?.textContent.startsWith('Modifications')) fillBookingForm();
+  if (settingsTab === 'users' && $('#userForm', els.settings)?.hidden) loadUsers();
+  if (settingsTab === 'services' && !servicesDirty) {
+    servicesDraft = null;
+    renderServicesForm();
+  }
 }
 
 function renderInspector() {
@@ -1370,46 +1740,7 @@ function renderInspector() {
 
       <button class="btn danger ghost small clear-plan" id="clearPlan">Repartir d'un plan vierge</button>
 
-      <div class="section-label">Services</div>
-      <form class="item-form services-form" id="servicesForm" novalidate></form>
-
-      <div class="section-label">Données des clients</div>
-      <form class="item-form" id="retentionForm" novalidate>
-        <div class="row">
-          <label class="field"><span>Archiver après</span>
-            <span class="unit-input"><input name="archiveAfterDays" type="number" min="14" max="365" inputmode="numeric" /><em>jours</em></span></label>
-          <label class="field"><span>Effacer nom et tél. après</span>
-            <span class="unit-input"><input name="anonymizeAfterMonths" type="number" min="1" max="36" inputmode="numeric" /><em>mois</em></span></label>
-        </div>
-        <button type="submit" class="btn ghost small">Enregistrer</button>
-        <p class="muted small-note" id="retentionInfo">Chargement…</p>
-      </form>
-
-      <div class="section-label">Code d'accès</div>
-      <form class="item-form" id="pinForm" novalidate>
-        <div class="row">
-          <label class="field"><span>Code actuel</span><input name="current" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password" /></label>
-          <label class="field"><span>Nouveau code</span><input name="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" /></label>
-        </div>
-        <button type="submit" class="btn ghost small">Changer le code</button>
-        <p class="muted small-note">4 à 8 chiffres. Les autres appareils devront saisir le nouveau code.</p>
-      </form>
     </div>`;
-
-  bindRetentionForm();
-  bindServicesForm();
-
-  $('#pinForm', els.inspector).addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    try {
-      await auth.change(form.current.value, form.pin.value);
-      form.reset();
-      toast('Code d’accès changé — les autres appareils devront saisir le nouveau code', 'success');
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
 
   els.inspector.querySelectorAll('[data-table]').forEach((b) =>
     b.addEventListener('click', () => addTable(TABLE_PRESETS[b.dataset.table]))
@@ -2975,6 +3306,7 @@ $('#moreMenu').addEventListener('click', (e) => {
   toggleMoreMenu(false);
   if (action === 'today') setDate(localDate());
   if (action === 'edit') $('#editToggle').click();
+  if (action === 'settings') openSettings();
   if (action === 'lock') $('#lockBtn').click();
   if (action === 'services') openDayServices();
 });
@@ -3419,6 +3751,7 @@ function openDialog(r = null) {
   f.date.value = r?.date ?? state.date;
   f.time.value = r?.time ?? serviceById(state.service)?.time ?? '20:00'; // heure habituelle du service affiché
   f.phone.value = r?.phone ?? '';
+  f.email.value = r?.email ?? '';
   f.notes.value = r?.notes ?? '';
   f.internalNote.value = r?.internalNote ?? '';
   f.tables.value = r ? tableNames(r) : '';
@@ -3640,15 +3973,8 @@ function setCompactHead(on) {
 // On cherche ou on filtre : tout réapparaît
 $('#search').addEventListener('focus', () => setCompactHead(false));
 
-$('#editToggle').addEventListener('click', async () => {
-  if (state.editMode && servicesDirty && !(await saveServicesNow())) {
-    if (!confirm(`Les services n'ont pas pu être enregistrés :\n${servicesStatus.text.replace(/^Non enregistré : /, '')}\n\nQuitter quand même (les modifications des services seront perdues) ?`)) return;
-  }
+$('#editToggle').addEventListener('click', () => {
   state.editMode = !state.editMode;
-  retentionCache = null; // chiffres à jour à chaque ouverture des réglages
-  servicesDraft = null;
-  servicesDirty = false;
-  servicesStatus = { text: '', warn: false };
   state.selected = null;
   state.linking = null;
   state.selectedRes = null;
@@ -3657,7 +3983,7 @@ $('#editToggle').addEventListener('click', async () => {
 $('#newRes').addEventListener('click', () => openDialog());
 $('#planNewRes').addEventListener('click', () => openDialog());
 
-/* Tablette : menu en haut à gauche (Modifier le plan, Verrouiller) */
+/* Tablette : menu en haut à gauche (Modifier le plan, Paramètres, Se déconnecter) */
 function toggleTopMenu(open = $('#topMenu').hidden) {
   $('#topMenu').hidden = !open;
   $('#menuBtn').setAttribute('aria-expanded', String(open));
@@ -3668,6 +3994,7 @@ $('#topMenu').addEventListener('click', (e) => {
   if (!action) return;
   toggleTopMenu(false);
   if (action === 'edit') $('#editToggle').click();
+  if (action === 'settings') openSettings();
   if (action === 'lock') $('#lockBtn').click();
 });
 document.addEventListener('pointerdown', (e) => {
@@ -3973,6 +4300,7 @@ async function flushRefresh() {
     if (state.selectedRes && !resById(state.selectedRes)) state.selectedRes = null;
     state.selection = state.selection.filter((s) => itemOf(s.kind, s.id));
     render();
+    if (scope === 'all') refreshSettings();
   } catch {
     /* hors ligne : la reconnexion relancera un rechargement complet */
   }
@@ -4015,61 +4343,71 @@ function connectLive() {
   };
 }
 
-/* ---------- Code d'accès ---------- */
+/* ---------- Connexion ---------- */
 
 const authEls = {
   screen: $('#authScreen'),
   form: $('#authForm'),
   title: $('#authTitle'),
   text: $('#authText'),
-  pin: $('#authPin'),
-  pin2: $('#authPin2'),
+  name: $('#authName'),
+  email: $('#authEmail'),
+  password: $('#authPassword'),
+  password2: $('#authPassword2'),
   error: $('#authError'),
   submit: $('#authSubmit'),
 };
 let authMode = null;
 
 function showAuth(mode) {
+  settingsEls.page.hidden = true;
   live?.close();
   live = null;
+  state.user = null;
   authMode = mode;
-  const { screen, title, text, pin, pin2, error, submit } = authEls;
+  const { screen, title, text, name, email, password, password2, error, submit } = authEls;
   document.body.classList.add('locked');
   screen.hidden = false;
   error.textContent = '';
-  pin.value = '';
-  pin2.value = '';
-  title.textContent = mode === 'login' ? 'Plan de salle' : 'Créer le code d’accès';
+  password.value = password2.value = '';
+  title.textContent = mode === 'login' ? 'Plan de salle' : 'Créer le compte administrateur';
   text.textContent =
     mode === 'login'
-      ? 'Entrez le code d’accès de l’équipe.'
+      ? 'Connectez-vous avec votre compte.'
       : mode === 'setup'
-        ? 'Choisissez un code de 4 à 8 chiffres. Il sera demandé sur chaque appareil (tablettes, ordinateurs) pour protéger les données des clients.'
-        : 'Le code d’accès doit d’abord être créé sur l’ordinateur qui fait tourner l’application (adresse http://localhost:3000).';
-  pin.hidden = submit.hidden = mode === 'setup-remote';
-  pin2.hidden = mode !== 'setup';
-  submit.textContent = mode === 'setup' ? 'Créer le code' : 'Entrer';
-  setTimeout(() => pin.focus(), 50);
+        ? 'Premier lancement : créez le compte administrateur. Il pourra ensuite créer les comptes de l’équipe dans « Paramètres ».'
+        : 'Le compte administrateur doit d’abord être créé sur l’ordinateur qui fait tourner l’application (adresse http://localhost:3000/gestion).';
+  const setup = mode === 'setup';
+  email.hidden = password.hidden = submit.hidden = mode === 'setup-remote';
+  name.hidden = password2.hidden = !setup;
+  password.autocomplete = setup ? 'new-password' : 'current-password';
+  submit.textContent = setup ? 'Créer le compte' : 'Se connecter';
+  setTimeout(() => (setup ? name : email.value ? password : email).focus(), 50);
 }
 
 authEls.form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const { pin, pin2, error, submit } = authEls;
+  const { name, email, password, password2, error, submit } = authEls;
   error.textContent = '';
   if (authMode === 'setup') {
-    if (!/^\d{4,8}$/.test(pin.value)) return (error.textContent = 'Le code doit contenir de 4 à 8 chiffres.');
-    if (pin.value !== pin2.value) return (error.textContent = 'Les deux codes ne sont pas identiques.');
+    if (!name.value.trim()) return (error.textContent = 'Indiquez votre nom.');
+    if (password.value.length < 8) return (error.textContent = 'Le mot de passe doit contenir au moins 8 caractères.');
+    if (password.value !== password2.value) return (error.textContent = 'Les deux mots de passe ne sont pas identiques.');
   }
   submit.disabled = true;
   try {
-    if (authMode === 'setup') await auth.setup(pin.value);
-    else await auth.login(pin.value);
+    const res =
+      authMode === 'setup'
+        ? await auth.setup({ name: name.value, email: email.value, password: password.value })
+        : await auth.login(email.value, password.value);
+    state.user = res.user;
     authEls.screen.hidden = true;
     document.body.classList.remove('locked');
+    password.value = password2.value = '';
     await start();
   } catch (err) {
     error.textContent = err.message;
-    pin.select();
+    password.select();
   } finally {
     submit.disabled = false;
   }
@@ -4102,6 +4440,7 @@ async function start() {
 
 try {
   const s = await auth.status();
+  state.user = s.user;
   if (s.authenticated) await start();
   else showAuth(s.configured ? 'login' : s.canSetup ? 'setup' : 'setup-remote');
 } catch (err) {

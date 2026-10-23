@@ -614,6 +614,27 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
 .group-box strong { font-size: 13px; }
 .group-row { align-items: center; justify-content: space-between; }
 .small-note { font-size: 12px; }
+/* Réservation faite par le client sur la page publique */
+.online-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; vertical-align: 2px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .02em; border-radius: 999px;
+  background: var(--resv-soft); color: var(--resv);
+}
+/* Comptes de l'équipe (page Paramètres) */
+.account-me { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.account-me strong { font-size: 14px; }
+.user-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.user-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2);
+}
+.user-row > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.user-row strong { font-size: 13.5px; }
+.user-row .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); flex: none; }
+.role-badge.staff { background: var(--surface); color: var(--muted); border: 1px solid var(--line); }
+.user-form { padding: 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+.user-form[hidden] { display: none; }
 .multi-box .row { margin-top: 4px; }
 .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -1049,7 +1070,68 @@ dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: 
 
 /* ---------- Notifications ---------- */
 
-/* ---------- Code d'accès ---------- */
+/* ---------- Page Paramètres ---------- */
+
+.settings-page {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.settings-page[hidden] { display: none; }
+.settings-head {
+  display: flex; align-items: center; gap: 14px; flex: none;
+  padding: 10px 20px; padding-top: max(10px, env(safe-area-inset-top));
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.settings-back { display: inline-flex; align-items: center; gap: 4px; padding-left: 6px; }
+.settings-head h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.settings-user { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-layout {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr);
+}
+.settings-nav {
+  display: flex; flex-direction: column; gap: 2px; padding: 20px 12px;
+  border-right: 1px solid var(--line); background: var(--surface);
+}
+.settings-nav button {
+  display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: none; color: var(--ink-2);
+  font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.settings-nav button:hover { background: var(--surface-2); }
+.settings-nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.settings-nav button svg { flex: none; }
+.settings-body { overflow-y: auto; overscroll-behavior: contain; padding: 28px 32px 48px; }
+.settings-section { max-width: 680px; display: flex; flex-direction: column; gap: 14px; }
+.settings-section h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.settings-section > .muted { margin: -6px 0 4px; font-size: 13.5px; }
+.settings-card {
+  padding: 18px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface);
+}
+.settings-card + .settings-card { margin-top: 4px; }
+.settings-section > .muted a { color: var(--accent); }
+.settings-card .switch b { font-weight: 600; color: var(--ink); font-size: 14px; }
+.booking-save { align-items: center; }
+.settings-card > .btn.small, .settings-card .item-form > .btn.small { align-self: flex-start; }
+
+@media (max-width: 700px) {
+  .settings-head { padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); gap: 8px; }
+  .settings-user { display: none; } /* le compte est dans l'onglet « Mon compte » */
+  .settings-layout { display: flex; flex-direction: column; }
+  /* Téléphone : sections en onglets défilants sous l'en-tête */
+  .settings-nav {
+    flex-direction: row; gap: 6px; padding: 8px 10px; overflow-x: auto; flex: none;
+    border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none;
+  }
+  .settings-nav button { flex: none; height: 36px; white-space: nowrap; }
+  .settings-nav button svg { display: none; }
+  .settings-body { flex: 1; padding: 18px 14px calc(32px + env(safe-area-inset-bottom)); }
+  .settings-card { padding: 14px; }
+}
+
+/* ---------- Connexion ---------- */
 
 .auth-screen {
   position: fixed; inset: 0; z-index: 300;
@@ -1066,11 +1148,9 @@ dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: 
 .auth-card h1 { margin: 4px 0 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
 .auth-card .muted { font-size: 13.5px; }
 .auth-card input {
-  height: 52px; padding: 0 14px; text-align: center;
-  font-size: 22px; letter-spacing: .3em; font-variant-numeric: tabular-nums;
+  height: 48px; padding: 0 14px; font-size: 15px; color: var(--ink);
   border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-2); outline: none;
 }
-.auth-card input::placeholder { font-size: 15px; letter-spacing: normal; }
 .auth-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .auth-card .btn { height: 48px; font-size: 15px; }
 body.locked .topbar, body.locked .layout { visibility: hidden; }

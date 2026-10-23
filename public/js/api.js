@@ -2,7 +2,7 @@
 export const CLIENT_ID = crypto.randomUUID?.() ?? `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 
 let onAuthRequired = () => {};
-/** Appelé quand le serveur demande le code d'accès (session expirée, code changé…). */
+/** Appelé quand le serveur demande une connexion (session expirée, mot de passe changé…). */
 export const setAuthHandler = (fn) => (onAuthRequired = fn);
 
 export class AuthError extends Error {}
@@ -33,10 +33,17 @@ async function request(method, url, body) {
 
 export const auth = {
   status: () => request('GET', '/api/auth/status'),
-  setup: (pin) => request('POST', '/api/auth/setup', { pin }),
-  login: (pin) => request('POST', '/api/auth/login', { pin }),
+  setup: (data) => request('POST', '/api/auth/setup', data),
+  login: (email, password) => request('POST', '/api/auth/login', { email, password }),
   logout: () => request('POST', '/api/auth/logout'),
-  change: (current, pin) => request('POST', '/api/auth/change', { current, pin }),
+  changePassword: (current, password) => request('POST', '/api/auth/password', { current, password }),
+};
+
+export const users = {
+  list: () => request('GET', '/api/users'),
+  create: (data) => request('POST', '/api/users', data),
+  update: (id, data) => request('PUT', `/api/users/${id}`, data),
+  remove: (id) => request('DELETE', `/api/users/${id}`),
 };
 
 export const api = {
@@ -64,6 +71,8 @@ export const api = {
   updateServices: (services) => request('PUT', '/api/services', { services }),
   setServiceDay: (date, id, open) => request('PUT', `/api/services/day/${date}`, { id, open }),
   updateSettings: (data) => request('PUT', '/api/settings', data),
+  bookingSettings: () => request('GET', '/api/settings/booking'),
+  updateBookingSettings: (data) => request('PUT', '/api/settings/booking', data),
   autoAssign: (date, service) => request('POST', '/api/reservations/auto-assign', { date, service }),
   unassign: (id) => request('POST', `/api/reservations/${id}/unassign`),
   setPinned: (id, pinned) => request('POST', `/api/reservations/${id}/pin`, { pinned }),
