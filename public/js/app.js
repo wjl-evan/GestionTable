@@ -1,4 +1,5 @@
 import { api, auth, AuthError, CLIENT_ID, setAuthHandler } from './api.js';
+import { initPickers, refreshPickers } from './pickers.js';
 import {
   areAdjacent, buildGraph, capacityOf, findCombination, groupOf, isActive, serviceOf, setKey, spanningEdges, statusOf,
   localDate,
@@ -225,6 +226,7 @@ function render() {
 
 function renderControls() {
   els.date.value = state.date;
+  refreshPickers($('.date-nav'));
   for (const b of document.querySelectorAll('#service button')) {
     b.classList.toggle('active', b.dataset.value === state.service);
   }
@@ -2969,6 +2971,8 @@ function renderPickBar() {
 }
 
 $('#pickOnPlan').addEventListener('click', startFormPick);
+// Calendriers : un point par service (midi, soir), coloré selon le remplissage
+initPickers({ dayInfo: (from, to) => api.summary(from, to) });
 
 function openDialog(r = null) {
   editingId = r?.id ?? null;
@@ -2983,6 +2987,7 @@ function openDialog(r = null) {
   f.internalNote.value = r?.internalNote ?? '';
   f.tables.value = r ? tableNames(r) : '';
   f.pinned.checked = Boolean(r?.pinned);
+  refreshPickers(f); // boutons date / heure (sélecteurs maison)
   $('#formError').textContent = '';
   $('#noTableBox').hidden = true;
   $('#deleteRes').hidden = !r;

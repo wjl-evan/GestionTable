@@ -89,6 +89,15 @@ export async function archivedReservations(date) {
   return (await readArchive(date.slice(0, 4))).filter((r) => r.date === date).map((r) => ({ ...r, archived: true }));
 }
 
+/** Réservations archivées entre deux dates incluses (AAAA-MM-JJ), pour les vues d'ensemble. */
+export async function archivedBetween(from, to) {
+  const out = [];
+  for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+    out.push(...(await readArchive(String(y))).filter((r) => r.date >= from && r.date <= to));
+  }
+  return out;
+}
+
 /** Nombre de réservations par année d'archive (pour l'écran des réglages). */
 export async function archiveStats() {
   const years = await archiveYears();

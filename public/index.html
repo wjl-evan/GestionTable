@@ -20,7 +20,9 @@
     <div class="controls">
       <div class="date-nav">
         <button class="icon-btn" id="prevDay" aria-label="Jour précédent">‹</button>
-        <input type="date" id="date" aria-label="Date du service" />
+        <!-- Valeur AAAA-MM-JJ ; le bouton l'affiche et ouvre le calendrier -->
+        <input type="hidden" id="date" />
+        <button type="button" class="picker-btn" data-picker="date" data-for="date" data-format="short" data-dots aria-label="Date du service"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
         <button class="icon-btn" id="nextDay" aria-label="Jour suivant">›</button>
         <button class="btn ghost small" id="today">Aujourd'hui</button>
       </div>
@@ -147,14 +149,16 @@
           <span>Personnes</span>
           <input name="people" type="number" min="1" max="50" value="2" required />
         </label>
-        <label class="field">
+        <div class="field">
           <span>Date</span>
-          <input name="date" type="date" required />
-        </label>
-        <label class="field">
+          <input type="hidden" name="date" id="resDate" />
+          <button type="button" class="picker-btn" data-picker="date" data-for="resDate" data-format="long" data-dots><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+        </div>
+        <div class="field">
           <span>Heure</span>
-          <input name="time" type="time" step="900" required />
-        </label>
+          <input type="hidden" name="time" id="resTime" />
+          <button type="button" class="picker-btn" data-picker="time" data-for="resTime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span></span></button>
+        </div>
       </div>
       <div class="row table-row">
         <label class="field">

@@ -97,6 +97,79 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .actions { display: flex; gap: 8px; }
 
 .date-nav { display: flex; align-items: center; gap: 4px; }
+/* Bouton qui affiche une date / une heure et ouvre le sélecteur maison */
+.picker-btn {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  height: 36px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2);
+  color: var(--ink); font: inherit; cursor: pointer; white-space: nowrap; text-align: left;
+  transition: border-color .15s, box-shadow .15s;
+}
+.picker-btn svg { flex: none; color: var(--muted); }
+.picker-btn span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.picker-btn:hover { border-color: var(--line-strong); }
+.picker-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.date-nav .picker-btn { min-width: 132px; }
+.date-nav .picker-btn span::first-letter, .field .picker-btn span::first-letter { text-transform: uppercase; }
+.field .picker-btn { width: 100%; height: auto; padding: 8px 10px; }
+
+/* Fenêtre des sélecteurs : en-tête coloré, comme sur Android */
+dialog.picker { width: min(400px, calc(100vw - 20px)); padding: 0; overflow: hidden; }
+dialog.picker::backdrop { background: rgba(20, 20, 15, .35); backdrop-filter: none; }
+.pk-head { display: flex; flex-direction: column; gap: 2px; padding: 16px 20px; background: var(--accent); color: var(--accent-ink); }
+.pk-head strong { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pk-head strong::first-letter { text-transform: uppercase; }
+.pk-year { font-size: 13px; opacity: .8; }
+.pk-body { padding: 14px 16px 4px; }
+.pk-month { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.pk-month span { font-weight: 600; text-transform: capitalize; }
+.pk-weekdays, .pk-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.pk-weekdays span { font-size: 12.5px; color: var(--muted); padding: 6px 0; }
+.pk-days button {
+  aspect-ratio: 1; border: 0; border-radius: 50%; background: none; color: var(--ink);
+  font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+/* Jours des mois voisins (pour garder 6 semaines) : plus pâles, toujours cliquables */
+.pk-days button.out { color: var(--muted); opacity: .55; }
+.pk-days button.out:hover { opacity: 1; }
+.pk-days button:hover { background: var(--surface-2); }
+.pk-days button.today { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); font-weight: 600; }
+.pk-days button.selected { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.pk-days button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Points de remplissage : midi (gauche), soir (droite) */
+.pk-days button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.pk-dots { display: flex; gap: 4px; height: 8px; }
+.pk-dots i, .pk-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+/* Couleurs bien séparées en teinte ET en clarté (jaune très clair, orange moyen, rouge foncé),
+   pour se distinguer même sur des points de quelques pixels */
+.lvl-empty { background: var(--line-strong); }
+.lvl-low { background: #22b363; }
+.lvl-mid { background: #ffd83d; }
+.lvl-high { background: #ff7a00; }
+.lvl-full { background: #b8001f; }
+.pk-days button.selected .pk-dots i { box-shadow: 0 0 0 1.5px var(--accent-ink); }
+.pk-legend { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.pk-legend > span { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.pk-legend > span > span, .pk-legend-pos { display: inline-flex; align-items: center; gap: 4px; }
+.pk-legend-pos i + i { margin-left: -1px; }
+.pk-foot { display: flex; align-items: center; gap: 6px; padding: 8px 12px 12px; }
+
+/* Heure : grands chiffres (heures / minutes), cadran */
+.pk-time { flex-direction: row; align-items: center; justify-content: center; gap: 4px; font-size: 44px; font-weight: 500; }
+.pk-seg {
+  border: 0; border-radius: 10px; padding: 2px 8px; background: none; color: inherit; opacity: .6;
+  font: inherit; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.pk-seg.on { opacity: 1; background: color-mix(in srgb, var(--accent-ink) 16%, transparent); }
+.pk-dial-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 16px; }
+.pk-dial { width: 256px; max-width: 100%; height: auto; touch-action: none; cursor: pointer; user-select: none; }
+.pk-dial .face { fill: var(--surface-2); }
+.pk-dial .hand { stroke: var(--accent); stroke-width: 2; }
+.pk-dial .pivot, .pk-dial .knob { fill: var(--accent); }
+.pk-dial text { fill: var(--ink); font: 500 14px var(--font); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.pk-dial text.inner { font-size: 12px; fill: var(--ink-2); }
+.pk-dial text.on { fill: var(--accent-ink); font-weight: 700; }
+.pk-hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
 .date-nav input {
   border: 1px solid var(--line);
   background: var(--surface-2);
@@ -1073,7 +1146,8 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .icon-btn { width: 42px; height: 42px; }
   .icon-btn.small { width: 36px; height: 36px; }
   .segmented button { padding: 9px 18px; min-height: 40px; }
-  .date-nav input { height: 42px; }
+  .date-nav .picker-btn { height: 42px; }
+  .field .picker-btn { padding: 11px 12px; font-size: 16px; }
   .search-row { --search-h: 44px; }
   .search input { font-size: 15px; }
   .search-clear { width: 36px; height: 36px; }
@@ -1134,7 +1208,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .brand, .actions, #today { display: none; }
   .controls { flex: 1; min-width: 0; justify-content: space-between; gap: 8px; }
   .date-nav { gap: 2px; min-width: 0; }
-  .date-nav input { width: 128px; min-width: 0; padding: 0 6px; }
+  .date-nav .picker-btn { width: 132px; min-width: 0; padding: 0 8px; gap: 6px; }
   .segmented button { padding: 7px 12px; }
 
   /* minmax(0, 1fr) : la colonne garde la largeur de l'écran ; ce qui est plus large défile à l'intérieur */
@@ -1173,13 +1247,13 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .row { flex-wrap: wrap; }
   dialog .row .field { flex: 1 1 40%; min-width: 0; }
   /* La date a besoin de place : seule sur sa ligne, en premier */
-  dialog .row .field:has(input[type="date"]) { flex-basis: 100%; order: -1; }
+  dialog .row .field:has([data-picker="date"]) { flex-basis: 100%; order: -1; }
 
   /* ---- Haut de la liste compact : plus de réservations visibles ----
      Les zones de toucher restent ≥ 34 px ; le champ de recherche garde 16 px (pas de zoom auto sur iPhone). */
   .topbar { padding: 5px 8px; padding-top: max(5px, env(safe-area-inset-top)); }
   .topbar .icon-btn { width: 34px; height: 38px; }
-  .date-nav input { height: 38px; }
+  .date-nav .picker-btn { height: 38px; }
   .segmented button { min-height: 36px; padding: 6px 14px; }
 
   .panel-head { padding: 7px 10px 6px; gap: 6px; }

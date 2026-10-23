@@ -51,6 +51,7 @@ export const api = {
   deleteGroup: (id) => request('DELETE', `/api/plan/groups/${id}`),
 
   reservations: (date) => request('GET', `/api/reservations?date=${encodeURIComponent(date)}`),
+  summary: (from, to) => request('GET', `/api/reservations/summary?from=${from}&to=${to}`),
   createReservation: (data) => request('POST', '/api/reservations', data),
   updateReservation: (id, data) => request('PUT', `/api/reservations/${id}`, data),
   deleteReservation: (id) => request('DELETE', `/api/reservations/${id}`),

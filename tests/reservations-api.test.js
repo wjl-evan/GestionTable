@@ -124,6 +124,20 @@ test('aucune table libre : réservation refusée (rien d’enregistré), sauf «
   assert.ok(list.some((r) => r.name === 'Karim'));
 });
 
+test('remplissage par service (points du calendrier) : vide, partiel, complet', async () => {
+  // 17 juin à midi : 2 personnes sur T1 seule (1 table sur 3, 2 couverts sur 10) → partiel
+  await book('Léa', { date: '2030-06-17', time: '12:00', tables: '1' });
+  const { status, data } = await api('GET', `/reservations/summary?from=2030-06-14&to=2030-06-17`);
+  assert.equal(status, 200);
+  assert.equal(data['2030-06-14'], undefined); // aucune réservation ce jour-là
+  // 15 juin au soir : T1, T2, T3 prises (toutes les tables) → complet
+  assert.equal(data['2030-06-15'].soir.ratio, 1);
+  assert.ok(data['2030-06-17'].midi.ratio > 0.3 && data['2030-06-17'].midi.ratio < 0.34);
+  assert.equal(data['2030-06-17'].soir, undefined);
+  assert.equal(data['2030-06-16'].soir.count, 1);
+  assert.equal((await api('GET', '/reservations/summary?from=2030-06-16&to=2030-06-01')).status, 400);
+});
+
 test('table inconnue : erreur claire', async () => {
   const { status, data } = await book('Félix', { tables: '99' });
   assert.equal(status, 400);

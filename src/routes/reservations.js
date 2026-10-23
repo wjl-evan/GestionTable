@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { getDb, persist, httpError } from '../store.js';
-import { archivedReservations } from '../retention.js';
+import { archivedBetween, archivedReservations } from '../retention.js';
 import { autoAssign, capacityOf, findCombination, isActive, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
 
 const router = Router();
@@ -163,6 +163,42 @@ function applyPinned(reservation, wanted, notices) {
   else delete reservation.pinned;
   if (wanted && !reservation.tableIds.length) notices.push(`Aucune table libre : ${reservation.name} n'a pas pu être fixé·e.`);
 }
+
+/**
+ * Remplissage de chaque service sur une période (pour les points du calendrier) :
+ * { 'AAAA-MM-JJ': { midi: { count, covers, ratio }, soir: { … } } }.
+ * `ratio` = la plus forte des deux proportions : tables prises / tables du plan, couverts / places
+ * (une réservation pas encore placée compte donc aussi). Les clients partis comptent : c'est
+ * le remplissage du service, pas l'occupation à l'instant.
+ */
+router.get('/summary', async (req, res) => {
+  const { from, to } = req.query;
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) throw httpError(400, 'Période invalide');
+  if ((new Date(to) - new Date(from)) / 864e5 > 62) throw httpError(400, 'Période trop longue (2 mois au plus)');
+  const db = getDb();
+  const ids = new Set(db.reservations.map((r) => r.id));
+  const list = [
+    ...db.reservations.filter((r) => r.date >= from && r.date <= to),
+    ...(await archivedBetween(from, to)).filter((r) => !ids.has(r.id)),
+  ];
+  const tableCount = db.tables.length || 1;
+  const seatCount = db.tables.reduce((s, t) => s + t.seats, 0) || 1;
+  const days = {};
+  for (const r of list) {
+    const day = (days[r.date] ??= {});
+    const s = (day[serviceOf(r.time)] ??= { count: 0, covers: 0, tables: new Set() });
+    s.count++;
+    s.covers += r.people;
+    for (const id of r.tableIds) s.tables.add(id);
+  }
+  for (const day of Object.values(days)) {
+    for (const [service, s] of Object.entries(day)) {
+      const ratio = Math.max(s.tables.size / tableCount, s.covers / seatCount);
+      day[service] = { count: s.count, covers: s.covers, ratio: Math.min(ratio, 1) }; // 1 = complet
+    }
+  }
+  res.json(days);
+});
 
 router.get('/', async (req, res) => {
   const { date } = req.query;
