@@ -47,7 +47,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }))
 
 app.use((err, req, res, next) => {
   if (!err.expose) console.error(err);
-  res.status(err.status || 500).json({ error: err.expose ? err.message : 'Erreur serveur' });
+  // `reason` : code lisible par l'interface pour proposer la bonne suite (ex. « no_table »)
+  res.status(err.status || 500).json({ error: err.expose ? err.message : 'Erreur serveur', ...(err.reason ? { reason: err.reason } : {}) });
 });
 
 /** Adresses à taper sur les tablettes du même réseau. */

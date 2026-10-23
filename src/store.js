@@ -135,9 +135,10 @@ export async function writeJsonAtomic(file, data) {
   await fs.rename(tmp, file);
 }
 
-export function httpError(status, message) {
+export function httpError(status, message, reason) {
   const err = new Error(message);
   err.status = status;
   err.expose = true;
+  if (reason) err.reason = reason;
   return err;
 }

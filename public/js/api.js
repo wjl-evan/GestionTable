@@ -23,7 +23,11 @@ async function request(method, url, body) {
     onAuthRequired(data.auth);
     throw new AuthError(data.error);
   }
-  if (!res.ok) throw new Error(data?.error || `Erreur ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data?.error || `Erreur ${res.status}`);
+    err.reason = data?.reason; // ex. « no_table » : aucune table libre pour cette réservation
+    throw err;
+  }
   return data;
 }
 

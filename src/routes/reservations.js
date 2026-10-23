@@ -75,6 +75,95 @@ function autoPlace(reservation) {
   return Boolean(placement);
 }
 
+const tableNamesOf = (ids) => ids.map((id) => getDb().tables.find((t) => t.id === id)?.name).filter(Boolean).join(' + ');
+
+const RANGE_RE = /^([a-z]*)\s*(\d+)\s*[-–—]\s*([a-z]*)\s*(\d+)$/i; // « 66-70 », « T66 - T70 »
+const MAX_RANGE = 40;
+
+/**
+ * Tables tapées dans le formulaire (« 12 », « T12 », « 50+51 », « 50, 51 », « 50 51 »,
+ * plage « 66-70 » = 66, 67, 68, 69 et 70) → ids.
+ * Vide → []. Une table inconnue → erreur 400 qui la nomme.
+ */
+function resolveTableInput(input) {
+  const { tables } = getDb();
+  const byName = (token) => {
+    const key = token.trim().toLowerCase();
+    if (!key) return null;
+    return tables.find((t) => t.name.toLowerCase() === key) ?? tables.find((t) => t.name.toLowerCase() === `t${key}`);
+  };
+  // Plage : toutes les tables entre les deux numéros (celles qui n'existent pas sont ignorées)
+  const byRange = (token) => {
+    const m = token.trim().match(RANGE_RE);
+    if (!m) return null;
+    const prefix = m[1] || m[3];
+    let [from, to] = [Number(m[2]), Number(m[4])];
+    if (from > to) [from, to] = [to, from];
+    if (to - from + 1 > MAX_RANGE) throw httpError(400, `Plage « ${token.trim()} » trop grande (${MAX_RANGE} tables au plus).`);
+    const found = [];
+    for (let n = from; n <= to; n++) {
+      const t = byName(`${prefix}${n}`);
+      if (t) found.push(t);
+    }
+    if (!found.length) throw httpError(400, `Aucune table entre ${from} et ${to} sur le plan.`);
+    return found;
+  };
+  const parts = Array.isArray(input) ? input.map(String) : String(input ?? '').split(/[,+;]/);
+  const ids = [];
+  for (const part of parts) {
+    if (!part.trim()) continue;
+    // « T12 » ou « Bar 1 » tel quel ; une plage « 66-70 » ; sinon « 50 51 » séparés par des espaces
+    const found = byName(part) ? [byName(part)] : byRange(part) ?? part.trim().split(/\s+/).map(byName);
+    if (found.some((t) => !t)) throw httpError(400, `Table « ${part.trim()} » introuvable sur le plan.`);
+    for (const t of found) if (!ids.includes(t.id)) ids.push(t.id);
+  }
+  return ids;
+}
+
+/** Réservations du même service qui occupent l'une de ces tables. */
+function occupantsOf(reservation, tableIds) {
+  const service = serviceOf(reservation.time);
+  return getDb().reservations.filter(
+    (o) =>
+      o.id !== reservation.id && o.date === reservation.date && serviceOf(o.time) === service &&
+      isActive(o) && o.tableIds.some((id) => tableIds.includes(id))
+  );
+}
+
+/** Vérifie, avant tout changement, qu'on peut libérer ces tables (ni réservation fixée, ni clients installés). */
+function assertTablesFreeable(reservation, tableIds) {
+  for (const o of occupantsOf(reservation, tableIds)) {
+    const why = o.pinned ? 'qui y est fixé·e' : statusOf(o) === 'arrived' ? 'déjà installé·e' : null;
+    if (why) throw httpError(409, `${tableNamesOf(o.tableIds)} est déjà prise par ${o.name}, ${why} : choisissez une autre table.`);
+  }
+}
+
+/**
+ * Place la réservation sur les tables choisies à la main (on peut se serrer). Les réservations
+ * qui y étaient sont déplacées sur une autre table libre ; s'il n'y en a pas, elles repassent
+ * « à placer ». Renvoie les messages à afficher.
+ */
+function placeOnChosenTables(reservation, tableIds) {
+  const notices = [];
+  const occupants = occupantsOf(reservation, tableIds);
+  setTables(reservation, tableIds, true);
+  for (const o of occupants) {
+    const before = tableNamesOf(o.tableIds);
+    setTables(o, []);
+    if (autoPlace(o)) notices.push(`${o.name} était en ${before} : déplacé·e en ${tableNamesOf(o.tableIds)}.`);
+    else notices.push(`${before} était occupée par ${o.name}. Aucune autre table n'est libre pour ${o.people} personne${o.people > 1 ? 's' : ''} : ${o.name} est maintenant « à placer ».`);
+  }
+  return notices;
+}
+
+/** Fixe la réservation si on l'a demandé (et si elle a une table). */
+function applyPinned(reservation, wanted, notices) {
+  if (wanted === undefined) return;
+  if (wanted && reservation.tableIds.length) reservation.pinned = true;
+  else delete reservation.pinned;
+  if (wanted && !reservation.tableIds.length) notices.push(`Aucune table libre : ${reservation.name} n'a pas pu être fixé·e.`);
+}
+
 router.get('/', async (req, res) => {
   const { date } = req.query;
   let list = getDb().reservations;
@@ -98,28 +187,57 @@ router.post('/', async (req, res) => {
     status: 'expected',
     createdAt: new Date().toISOString(),
   });
+  // Tables choisies dans le formulaire : vérifiées avant d'enregistrer quoi que ce soit
+  const chosen = resolveTableInput(req.body.tables);
+  if (chosen.length) assertTablesFreeable(r, chosen);
+  // Aucune table libre : on n'enregistre pas, sauf si on a choisi de la prendre quand même (« à placer »)
+  if (!chosen.length && !req.body.allowUnplaced) {
+    const db = getDb();
+    const placement = autoAssign(db.tables, [r], busyTables(r), db.groups).get(r.id);
+    if (!placement) {
+      throw httpError(
+        409,
+        `Aucune table libre pour ${r.people} personne${r.people > 1 ? 's' : ''} au service du ${serviceOf(r.time)} du ${r.date.split('-').reverse().join('/')}.`,
+        'no_table'
+      );
+    }
+  }
+
   getDb().reservations.push(r);
-  autoPlace(r); // une table libre lui est attribuée tout de suite (sinon : « à placer »)
+  const notices = chosen.length
+    ? placeOnChosenTables(r, chosen)
+    : (autoPlace(r), []); // sinon une table libre lui est attribuée tout de suite (ou « à placer »)
+  applyPinned(r, req.body.pinned === undefined ? undefined : Boolean(req.body.pinned), notices);
   await persist();
-  res.status(201).json(r);
+  // `notices` : messages pour l'écran (non enregistrés)
+  res.status(201).json({ ...r, notices });
 });
 
 router.put('/:id', async (req, res) => {
   const db = getDb();
   const current = findReservation(req.params.id);
   const next = validate(req.body, current);
+  // Tables du formulaire : prises en compte seulement si on les a changées
+  const sameSet = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
+  const chosen = req.body.tables === undefined ? null : resolveTableInput(req.body.tables);
+  const changeTables = chosen !== null && !sameSet(chosen, current.tableIds);
+  if (changeTables && chosen.length) assertTablesFreeable(next, chosen);
 
   // Changement de service ou table devenue trop petite → la réservation repasse "à placer"
   // (sauf regroupement choisi à la main ou réservation fixée : on a déjà accepté de se serrer)
   const moved = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
   const tooSmall = !current.manualGroup && !current.pinned && capacityOf(db.tables, next.tableIds, db.groups) < next.people;
   Object.assign(current, next);
-  if (moved || tooSmall) {
+  let notices = [];
+  if (changeTables && chosen.length) {
+    notices = placeOnChosenTables(current, chosen);
+  } else if (changeTables || moved || tooSmall) {
     setTables(current, []);
     autoPlace(current); // nouvelle table cherchée automatiquement
   }
+  applyPinned(current, req.body.pinned === undefined ? undefined : Boolean(req.body.pinned), notices);
   await persist();
-  res.json(current);
+  res.json({ ...current, notices });
 });
 
 router.delete('/:id', async (req, res) => {

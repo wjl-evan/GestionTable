@@ -540,6 +540,12 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
 .switch input:checked + span { background: var(--accent); }
 .switch input:checked + span::after { transform: translateX(14px); }
 .switch input:focus-visible + span { box-shadow: 0 0 0 3px var(--accent-soft); }
+/* Formulaire de réservation : tables choisies à la main + « Fixer » (violet, comme les tables fixées) */
+.table-row { align-items: flex-end; }
+.table-row .field { flex: 1; min-width: 0; }
+.table-row .field em { font-style: normal; font-weight: 400; color: var(--muted); }
+.table-row .switch { white-space: nowrap; padding-bottom: 9px; }
+.table-row .switch input:checked + span { background: var(--pin); }
 
 /* ---------- Plan de salle ---------- */
 
@@ -809,6 +815,11 @@ body.grouping .table.busy:not(.grouping-pick) { opacity: .45; cursor: not-allowe
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 22%, transparent) !important;
 }
 .table.grouping-pick .chair { background: var(--warn); }
+/* Choix des tables depuis le formulaire : les tables occupées restent lisibles (on peut les reprendre) */
+body.form-picking .table { cursor: copy; }
+body.form-picking .table.busy:not(.grouping-pick) { opacity: .75; }
+.pick-bar { border-color: var(--accent); }
+.table-row .pick-btn { flex: none; gap: 6px; }
 .grouping-bar {
   position: absolute; left: 50%; top: 16px; transform: translateX(-50%); z-index: 20;
   display: flex; align-items: center; gap: 16px;
@@ -879,6 +890,16 @@ dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: 
 .spacer { flex: 1; }
 .form-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
 .form-error:empty { display: none; }
+/* Aucune table libre : message + choix (choisir sur le plan / enregistrer sans table) */
+.no-table {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+}
+.no-table p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink); }
+.no-table-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.no-table-save { border: 1px solid var(--warn); color: var(--warn); background: transparent; }
+.no-table-save:hover { background: color-mix(in srgb, var(--warn) 14%, transparent); }
 
 /* ---------- Notifications ---------- */
 

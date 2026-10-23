@@ -80,6 +80,8 @@
       </div>
       <div class="grouping-bar" id="groupingBar" hidden></div>
       <div class="grouping-bar placing-bar" id="placingBar" hidden></div>
+      <!-- Choix des tables depuis le formulaire de réservation -->
+      <div class="grouping-bar pick-bar" id="pickBar" hidden></div>
       <div class="zoom">
         <button class="icon-btn small pan-toggle" id="panToggle" aria-label="Déplacer la vue"
           title="Déplacer la vue : glisser le fond fait défiler le plan au lieu de sélectionner">
@@ -154,6 +156,17 @@
           <input name="time" type="time" step="900" required />
         </label>
       </div>
+      <div class="row table-row">
+        <label class="field">
+          <span>Tables <em>— vide : choisie automatiquement</em></span>
+          <input name="tables" autocomplete="off" placeholder="ex. 12, 66-70" />
+        </label>
+        <button type="button" class="btn ghost pick-btn" id="pickOnPlan" title="Voir le plan de ce service et toucher les tables à attribuer">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+          Sur le plan
+        </button>
+        <label class="switch"><input type="checkbox" name="pinned" /><span></span>Fixer à cette table</label>
+      </div>
       <label class="field">
         <span>Téléphone</span>
         <input name="phone" type="tel" autocomplete="off" />
@@ -167,6 +180,14 @@
         <textarea name="internalNote" rows="2" placeholder="Habitué, client exigeant, acompte versé…"></textarea>
       </label>
       <p class="form-error" id="formError"></p>
+      <!-- Aucune table libre : la réservation n'est pas enregistrée, on propose la suite -->
+      <div class="no-table" id="noTableBox" hidden>
+        <p id="noTableText"></p>
+        <div class="no-table-actions">
+          <button type="button" class="btn ghost small" id="noTablePick">Choisir sur le plan</button>
+          <button type="button" class="btn small no-table-save" id="noTableSave">Enregistrer sans table</button>
+        </div>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="btn danger ghost" id="deleteRes">Supprimer</button>
         <span class="spacer"></span>

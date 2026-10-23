@@ -8,6 +8,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const SNAP = 10;
 
 const state = {
+  formPick: null, // choix des tables sur le plan depuis le formulaire : { tableIds, name, people }
   room: { w: 1000, h: 620 },
   zones: [],
   tables: [],
@@ -179,8 +180,10 @@ function toast(message, type = 'info') {
   el.className = `toast ${type}`;
   el.textContent = message;
   els.toasts.append(el);
-  setTimeout(() => el.classList.add('out'), 3200);
-  setTimeout(() => el.remove(), 3600);
+  // Le temps de lire : plus long pour un long message (ex. réservation déplacée)
+  const ms = Math.min(9000, Math.max(3200, message.length * 55));
+  setTimeout(() => el.classList.add('out'), ms);
+  setTimeout(() => el.remove(), ms + 400);
 }
 
 function shiftDate(iso, days) {
@@ -213,6 +216,7 @@ function render() {
   if (state.editMode) renderInspector();
   else renderList();
   renderGroupingBar(); // avant le plan : il peut annuler un regroupement devenu invalide
+  renderPickBar();
   renderPlacingBar();
   renderPlan();
   renderSheet();
@@ -1173,7 +1177,7 @@ function renderPlan() {
 
   // Projecteur : la réservation sélectionnée a une table sur le plan → les autres tables s'effacent.
   // (Pas pendant un placement ou un regroupement : ces modes ont leur propre mise en évidence.)
-  const spot = !state.editMode && !state.placing && !state.grouping &&
+  const spot = !state.editMode && !state.placing && !state.grouping && !state.formPick &&
     [...occ.values()].some((r) => r.id === state.selectedRes);
   document.body.classList.toggle('spotlight', spot);
   // Le halo ne pulse qu'au moment où l'on sélectionne, pas à chaque rafraîchissement
@@ -1586,7 +1590,7 @@ function tableElement(t, res) {
   const el = document.createElement('div');
   el.className = ['table', t.shape, res ? `busy ${statusOf(res)}` : 'free', grouped ? 'grouped' : '', res?.pinned ? 'pinned' : '',
     res && state.selectedRes === res.id ? `selected${pulseNow ? ' pulse' : ''}` : '',
-    state.grouping?.tableIds.includes(t.id) ? 'grouping-pick' : '',
+    state.grouping?.tableIds.includes(t.id) || state.formPick?.tableIds.includes(t.id) ? 'grouping-pick' : '',
     t.mergeable ? 'mergeable' : ''].filter(Boolean).join(' ');
   el.dataset.id = t.id;
   Object.assign(el.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.w}px`, height: `${t.h}px` });
@@ -1662,7 +1666,8 @@ function tableElement(t, res) {
   });
   el.addEventListener('click', () => {
     if (panned) return; // fin d'un glisser du plan au doigt, pas un toucher
-    if (state.grouping) return toggleGroupingTable(t, res);
+    if (state.grouping) return toggleGroupingTable(t, res); // (prioritaire : déplacement en cours)
+    if (state.formPick) return toggleFormPick(t, res);
     if (state.placing) return placeOnTable(t, res);
     if (isPhone()) return openSheet(t.id); // téléphone : fiche de la table en bas de l'écran
     state.selectedRes = res ? (state.selectedRes === res.id ? null : res.id) : null;
@@ -1670,7 +1675,7 @@ function tableElement(t, res) {
     const card = res && els.resList.querySelector(`.res-card[data-id="${res.id}"]`);
     if (card) scrollListTo(card, 'center');
   });
-  el.addEventListener('dblclick', () => res && !res.archived && openDialog(res));
+  el.addEventListener('dblclick', () => res && !res.archived && !state.formPick && openDialog(res));
   return el;
 }
 
@@ -2848,6 +2853,123 @@ async function unassignAll() {
 
 let editingId = null;
 
+/* ---------- Choisir les tables sur le plan, depuis le formulaire ---------- */
+
+/**
+ * Lit le champ « Tables » comme le serveur (« 12 », « T12 », « 50+51 », « 66-70 »…).
+ * Les noms inconnus sont ignorés ici (le serveur les signalera à l'enregistrement).
+ */
+function parseTableField(text) {
+  const byName = (token) => {
+    const key = token.trim().toLowerCase();
+    return key ? state.tables.find((t) => t.name.toLowerCase() === key || t.name.toLowerCase() === `t${key}`) : null;
+  };
+  const ids = [];
+  for (const part of String(text).split(/[,+;]/)) {
+    if (!part.trim()) continue;
+    let found;
+    const m = part.trim().match(/^([a-z]*)\s*(\d+)\s*[-–—]\s*([a-z]*)\s*(\d+)$/i);
+    if (byName(part)) found = [byName(part)];
+    else if (m) {
+      const [from, to] = [Number(m[2]), Number(m[4])].sort((a, b) => a - b);
+      found = [];
+      for (let n = from; n <= to && n - from < 40; n++) found.push(byName(`${m[1] || m[3]}${n}`));
+    } else found = part.trim().split(/\s+/).map(byName);
+    for (const t of found) if (t && !ids.includes(t.id)) ids.push(t.id);
+  }
+  return ids;
+}
+
+/**
+ * « Sur le plan » : le formulaire se met de côté (rien n'est perdu), le plan du service de la
+ * réservation s'affiche ; on touche les tables à attribuer, on peut aussi déplacer les autres
+ * réservations comme d'habitude, puis « Valider » revient au formulaire avec les tables remplies.
+ */
+async function startFormPick() {
+  const f = els.form;
+  if (!f.date.value || !f.time.value) {
+    $('#formError').textContent = 'Indiquez d’abord la date et l’heure : le plan dépend du service.';
+    return;
+  }
+  state.formPick = {
+    tableIds: parseTableField(f.tables.value),
+    name: f.name.value.trim() || 'Nouvelle réservation',
+    people: Number(f.people.value) || 0,
+  };
+  state.placing = null;
+  state.grouping = null;
+  state.selectedRes = null;
+  closeSheet();
+  els.dialog.close();
+  // Le plan affiché est celui du jour et du service de la réservation
+  if (f.date.value !== state.date) {
+    state.date = f.date.value;
+    await loadReservations();
+  }
+  state.service = serviceOf(f.time.value);
+  if (isPhone()) setView('plan');
+  render();
+}
+
+function finishFormPick(apply) {
+  const pick = state.formPick;
+  if (!pick) return;
+  state.formPick = null;
+  if (apply) els.form.tables.value = namesOf(pick.tableIds);
+  render();
+  els.dialog.showModal(); // le formulaire revient tel qu'on l'avait laissé
+  $('#formError').textContent = '';
+  if (apply) $('#noTableBox').hidden = true;
+}
+
+/** Toucher une table pendant le choix : l'ajoute ou la retire (sauf si elle ne peut pas être libérée). */
+function toggleFormPick(t, occupant) {
+  const pick = state.formPick;
+  const own = occupant && occupant.id === editingId;
+  if (occupant && !own && !pick.tableIds.includes(t.id)) {
+    if (occupant.pinned) return toast(`${t.name} : ${occupant.name} y est fixé·e`, 'error');
+    if (statusOf(occupant) === 'arrived') return toast(`${t.name} : ${occupant.name} est déjà installé·e`, 'error');
+  }
+  pick.tableIds = pick.tableIds.includes(t.id) ? pick.tableIds.filter((id) => id !== t.id) : [...pick.tableIds, t.id];
+  render();
+}
+
+function renderPickBar() {
+  const bar = $('#pickBar');
+  const pick = state.formPick;
+  if (pick && state.editMode) state.formPick = null; // passage en « Modifier le plan » : on abandonne
+  document.body.classList.toggle('form-picking', Boolean(state.formPick));
+  // Un déplacement de réservation demande le choix de ses tables : sa barre passe devant
+  bar.hidden = !state.formPick || Boolean(state.grouping);
+  if (!state.formPick) return (bar.innerHTML = '');
+
+  const capacity = cap(pick.tableIds);
+  const occ = occupancy();
+  // Réservations qui devront changer de table (le serveur leur en cherchera une autre)
+  const displaced = [...new Set(pick.tableIds.map((id) => occ.get(id)).filter((r) => r && r.id !== editingId))];
+  const status = !pick.tableIds.length
+    ? '<span class="muted">Touchez les tables à attribuer</span>'
+    : `<b>${esc(namesOf(pick.tableIds))}</b> · ${
+        pick.people > capacity
+          ? `<b class="short">${capacity} places pour ${pick.people}</b>`
+          : `<b class="enough">${capacity} places</b>`}`;
+  bar.innerHTML = `
+    <div class="grouping-info">
+      <strong>${esc(pick.name)} · ${pick.people} pers. — ${esc(state.service === 'midi' ? 'midi' : 'soir')} du ${esc(frDate(state.date))}</strong>
+      <span>${status}</span>
+      ${displaced.length ? `<span class="muted">${esc(displaced.map((r) => r.name).join(', '))} ${displaced.length > 1 ? 'seront déplacé·es' : 'sera déplacé·e'} sur une autre table libre.</span>` : ''}
+      <span class="muted">Vous pouvez aussi glisser les autres réservations pour faire de la place.</span>
+    </div>
+    <div class="grouping-actions">
+      <button class="btn ghost small" id="pickCancel">Annuler</button>
+      <button class="btn primary small" id="pickApply">Valider</button>
+    </div>`;
+  $('#pickCancel', bar).addEventListener('click', () => finishFormPick(false));
+  $('#pickApply', bar).addEventListener('click', () => finishFormPick(true));
+}
+
+$('#pickOnPlan').addEventListener('click', startFormPick);
+
 function openDialog(r = null) {
   editingId = r?.id ?? null;
   const f = els.form;
@@ -2859,7 +2981,10 @@ function openDialog(r = null) {
   f.phone.value = r?.phone ?? '';
   f.notes.value = r?.notes ?? '';
   f.internalNote.value = r?.internalNote ?? '';
+  f.tables.value = r ? tableNames(r) : '';
+  f.pinned.checked = Boolean(r?.pinned);
   $('#formError').textContent = '';
+  $('#noTableBox').hidden = true;
   $('#deleteRes').hidden = !r;
   els.dialog.showModal();
   f.name.focus();
@@ -2868,17 +2993,22 @@ function openDialog(r = null) {
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(els.form));
+  data.pinned = els.form.pinned.checked; // case décochée : absente du formulaire, mais on veut « false »
+  // « Enregistrer sans table » : on accepte qu'elle reste « à placer »
+  if (els.form.dataset.allowUnplaced) data.allowUnplaced = true;
+  delete els.form.dataset.allowUnplaced;
+  $('#noTableBox').hidden = true;
+  $('#formError').textContent = '';
   try {
-    const saved = editingId
+    // `notices` : ce qui s'est passé pour les autres réservations (déplacées, à placer…)
+    const { notices = [], ...saved } = editingId
       ? await api.updateReservation(editingId, data)
       : await api.createReservation(data);
     const oldTables = editingId ? resById(editingId)?.tableIds.join() ?? '' : '';
     els.dialog.close();
-    if (saved.date !== state.date) {
-      state.date = saved.date;
-      await loadReservations();
-    } else if (editingId) replaceReservation(saved);
-    else state.reservations.push(saved);
+    // Rechargement : d'autres réservations ont pu être déplacées pour libérer la table choisie
+    state.date = saved.date;
+    await loadReservations();
     state.service = serviceOf(saved.time);
     // Nouvelle réservation (ou changée de service) : une table libre lui est attribuée automatiquement
     const placedNow = saved.tableIds.length > 0 && saved.tableIds.join() !== oldTables;
@@ -2888,10 +3018,25 @@ els.form.addEventListener('submit', async (e) => {
     } else if (oldTables && !saved.tableIds.length) toast(`${saved.name} est à replacer sur le plan`);
     else if (placedNow) toast(`Réservation mise à jour — placée en ${tableNames(saved)}`, 'success');
     else toast('Réservation mise à jour', 'success');
+    // Une réservation déplacée : info ; une réservation restée sans table ou non fixée : à surveiller
+    for (const n of notices) toast(n, /à placer|pas pu/.test(n) ? 'error' : 'success');
     render();
   } catch (err) {
-    $('#formError').textContent = err.message;
+    if (err.reason === 'no_table') {
+      // Rien n'est enregistré : on explique et on propose de choisir une table, ou de la prendre quand même
+      $('#noTableText').textContent = `${err.message} La réservation n'est pas enregistrée.`;
+      $('#noTableBox').hidden = false;
+      $('#noTableBox').scrollIntoView({ block: 'nearest' });
+    } else {
+      $('#formError').textContent = err.message;
+    }
   }
+});
+
+$('#noTablePick').addEventListener('click', startFormPick);
+$('#noTableSave').addEventListener('click', () => {
+  els.form.dataset.allowUnplaced = '1';
+  els.form.requestSubmit();
 });
 
 $('#cancelRes').addEventListener('click', () => els.dialog.close());
@@ -3230,6 +3375,7 @@ els.planWrap.addEventListener('pointerdown', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (els.dialog.open || detailEl.open || e.target.closest('input, select, textarea')) return;
+  if (e.key === 'Escape' && state.formPick) return finishFormPick(false);
   if (e.key === 'Escape' && state.grouping) return cancelGrouping();
   if (e.key === 'Escape' && state.placing) return cancelPlacing();
   if (e.key === 'Escape' && state.linking) {
