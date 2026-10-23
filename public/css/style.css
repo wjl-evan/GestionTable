@@ -111,7 +111,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .picker-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
 .date-nav .picker-btn { min-width: 132px; }
 .date-nav .picker-btn span::first-letter, .field .picker-btn span::first-letter { text-transform: uppercase; }
-.field .picker-btn { width: 100%; height: auto; padding: 8px 10px; }
+.field .picker-btn { width: 100%; padding: 0 10px; }
+/* Formulaire de réservation : « Personnes » étroit (2 chiffres), la date a la place de s'afficher en entier */
+dialog .row .field:has(input[name="people"]) { flex: 0 0 96px; }
+dialog .row .field:has([data-picker="date"]) { flex: 1.6 1 0; }
+dialog .row .field:has([data-picker="time"]) { flex: 0 0 112px; }
+/* Même hauteur pour les champs d'une ligne (nombre, date, heure, tables…) */
+.field input:not([type="checkbox"]), .field select, .field .picker-btn { height: var(--field-h, 38px); }
 
 /* Fenêtre des sélecteurs : en-tête coloré, comme sur Android */
 dialog.picker { width: min(400px, calc(100vw - 20px)); padding: 0; overflow: hidden; }
@@ -1156,7 +1162,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .icon-btn.small { width: 36px; height: 36px; }
   .segmented button { padding: 9px 18px; min-height: 40px; }
   .date-nav .picker-btn { height: 42px; }
-  .field .picker-btn { padding: 11px 12px; font-size: 16px; }
+  .field .picker-btn { padding: 0 12px; font-size: 16px; }
   .search-row { --search-h: 44px; }
   .search input { font-size: 15px; }
   .search-clear { width: 36px; height: 36px; }
@@ -1179,6 +1185,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   .handle { width: 26px; height: 26px; right: -13px; bottom: -13px; border-radius: 7px; }
   .link-cap input { width: 60px; height: 36px; font-size: 15px; }
   .field input, .field select, .field textarea { padding: 11px 12px; font-size: 16px; } /* 16 px : pas de zoom auto sur iPad */
+  .field { --field-h: 46px; }
   dialog form { gap: 16px; }
 
   /* Les survols n'existent pas au doigt : les cartes atténuées restent lisibles quand on les touche */
@@ -1294,6 +1301,7 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   dialog .row .field { flex: 1 1 40%; min-width: 0; }
   /* La date a besoin de place : seule sur sa ligne, en premier */
   dialog .row .field:has([data-picker="date"]) { flex-basis: 100%; order: -1; }
+  dialog .row .field:has(input[name="people"]), dialog .row .field:has([data-picker="time"]) { flex: 1 1 40%; }
 
   /* ---- Haut de la liste compact : plus de réservations visibles ----
      Les zones de toucher restent ≥ 34 px ; le champ de recherche garde 16 px (pas de zoom auto sur iPhone). */

@@ -13,13 +13,16 @@ const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseIso = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s || '') ? new Date(`${s}T12:00:00`) : null);
 
-/** Texte du bouton : date courte (« sam. 24 oct. ») ou longue (« samedi 24 octobre 2026 »), ou heure. */
+/** Texte du bouton : date courte (« sam. 24 oct. »), moyenne (« dim. 25 oct. 2026 »), longue (« samedi 24 octobre 2026 »), ou heure. */
 function label(kind, value, format) {
   if (kind === 'time') return value || '--:--';
   const d = parseIso(value);
   if (!d) return 'Choisir…';
   if (format === 'long') {
     return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  if (format === 'medium') {
+    return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
