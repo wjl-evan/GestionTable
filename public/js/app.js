@@ -234,6 +234,7 @@ function renderControls() {
   toggle.textContent = state.editMode ? 'Terminer' : 'Modifier le plan';
   toggle.classList.toggle('active', state.editMode);
   $('#newRes').hidden = state.editMode;
+  $('#topMenu [data-top="edit"] span').textContent = state.editMode ? 'Terminer la modification du plan' : 'Modifier le plan';
   els.sidebar.hidden = state.editMode;
   els.inspector.hidden = !state.editMode;
   document.body.classList.toggle('editing', state.editMode);
@@ -1286,7 +1287,9 @@ function renderMergedGroup(r) {
   for (const c of clusters) {
     const merge = document.createElement('div');
     merge.className = `merge ${statusOf(r)}${r.pinned ? ' pinned' : ''}${selected}`;
+    merge.dataset.table = c[0].id; // table « représentante » du bloc
     Object.assign(merge.style, boxStyle(boxOf(c)));
+    bindMergeBlock(merge, r, c[0]);
     plan.append(merge);
   }
 
@@ -1306,6 +1309,33 @@ function renderMergedGroup(r) {
     plan.insertAdjacentHTML('beforeend', pinBadge(` plan-badge${selected}`));
     Object.assign(plan.lastElementChild.style, { left: `${main.x + main.w}px`, top: `${main.y}px` });
   }
+}
+
+/**
+ * Toute la zone colorée d'une fusion (espaces entre les tables compris) se comporte comme ses tables :
+ * on la glisse (souris ou appui long au doigt) pour déplacer la réservation, un toucher la sélectionne,
+ * et on peut y déposer une réservation. Les actions sont relayées à une table du bloc.
+ */
+function bindMergeBlock(merge, r, t) {
+  const tableEl = () => els.plan.querySelector(`.table[data-id="${t.id}"]`);
+  if (!r.archived && !r.pinned) {
+    merge.draggable = true;
+    merge.addEventListener('dragstart', (e) => startDrag(e, r.id));
+    merge.addEventListener('dragend', endDrag);
+    merge.addEventListener('pointerdown', (e) => armTouchDrag(e, r.id, merge));
+  }
+  merge.addEventListener('dragover', (e) => onTableDragOver(e, t));
+  merge.addEventListener('dragleave', (e) => {
+    if (!merge.contains(e.relatedTarget)) clearPreview();
+  });
+  merge.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const resId = state.drag?.resId;
+    clearPreview();
+    if (resId) assign(resId, t.id);
+  });
+  merge.addEventListener('click', () => tableEl()?.click());
+  merge.addEventListener('dblclick', () => tableEl()?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
 }
 
 /** Voisinages et fusions manuelles (visibles en édition et pendant un glisser-déposer). */
@@ -1784,7 +1814,8 @@ function setZoom(next, cx = els.planWrap.clientWidth / 2, cy = els.planWrap.clie
 /* ---------- Glisser-déposer des réservations ---------- */
 
 function startDrag(e, resId) {
-  state.drag = { resId };
+  // fromPlan : pris sur une table du plan (le lâcher sur la liste le retire du plan) ou depuis une carte de la liste
+  state.drag = { resId, fromPlan: Boolean(e.currentTarget?.closest?.('.table, .merge')) };
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', resId);
   dragFrame = requestAnimationFrame(() => document.body.classList.add('dragging'));
@@ -1836,6 +1867,8 @@ function armTouchDrag(e, resId, source) {
   const id = e.pointerId;
   const start = { x: e.clientX, y: e.clientY };
   const timer = setTimeout(begin, LONG_PRESS_MS);
+  // Après un court instant (pas pour un simple toucher), l'élément montre qu'il va se soulever
+  const hintTimer = setTimeout(() => source.classList.add('pressing'), 120);
 
   function begin() {
     const res = resById(resId);
@@ -1846,6 +1879,7 @@ function armTouchDrag(e, resId, source) {
     document.body.append(ghost);
     touchDrag = { resId, ghost, source };
     state.drag = { resId }; // même aperçu que le glisser à la souris
+    source.classList.remove('pressing');
     source.classList.add('drag-source');
     document.body.classList.add('dragging', 'touch-dragging');
     if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(12); // petit retour haptique (Android)
@@ -1873,6 +1907,8 @@ function armTouchDrag(e, resId, source) {
   }
   function cleanup() {
     clearTimeout(timer);
+    clearTimeout(hintTimer);
+    source.classList.remove('pressing');
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onCancel);
@@ -1889,6 +1925,8 @@ function touchTarget(x, y) {
   const el = document.elementFromPoint(x, y);
   const tableEl = el?.closest('.table');
   if (tableEl) return { table: tableById(tableEl.dataset.id) };
+  const mergeEl = el?.closest('.merge');
+  if (mergeEl) return { table: tableById(mergeEl.dataset.table) };
   if (el?.closest('#sidebar')) return { list: true };
   return {};
 }
@@ -1921,7 +1959,7 @@ function moveTouchDrag(x, y) {
 
 /** Déposer sur la liste retire du plan, seulement si on a pris la réservation depuis une table du plan. */
 const canUnassignByDrop = (target, res) =>
-  Boolean(target.list && res?.tableIds.length && touchDrag?.source.classList.contains('table'));
+  Boolean(target.list && res?.tableIds.length && touchDrag?.source.matches('.table, .merge'));
 
 function dropTouchDrag(x, y) {
   const { resId } = touchDrag;
@@ -1992,9 +2030,10 @@ function clearPreview() {
   els.plan.querySelectorAll('.drop-hint').forEach((n) => n.remove());
 }
 
-// Déposer sur la liste = retirer la réservation du plan
+// Déposer sur la liste = retirer la réservation du plan — seulement si on l'a prise sur le plan
+// (une carte glissée puis relâchée dans la liste ne perd pas sa table)
 els.sidebar.addEventListener('dragover', (e) => {
-  const res = state.drag && resById(state.drag.resId);
+  const res = state.drag?.fromPlan && resById(state.drag.resId);
   if (!res?.tableIds.length) return;
   e.preventDefault();
   els.sidebar.classList.add('drop-target');
@@ -2005,7 +2044,7 @@ els.sidebar.addEventListener('dragleave', (e) => {
 els.sidebar.addEventListener('drop', (e) => {
   e.preventDefault();
   els.sidebar.classList.remove('drop-target');
-  const res = state.drag && resById(state.drag.resId);
+  const res = state.drag?.fromPlan && resById(state.drag.resId);
   if (res?.tableIds.length) unassign(res.id);
 });
 
@@ -3183,6 +3222,25 @@ $('#editToggle').addEventListener('click', () => {
   render();
 });
 $('#newRes').addEventListener('click', () => openDialog());
+$('#planNewRes').addEventListener('click', () => openDialog());
+
+/* Tablette : menu en haut à gauche (Modifier le plan, Verrouiller) */
+function toggleTopMenu(open = $('#topMenu').hidden) {
+  $('#topMenu').hidden = !open;
+  $('#menuBtn').setAttribute('aria-expanded', String(open));
+}
+$('#menuBtn').addEventListener('click', () => toggleTopMenu());
+$('#topMenu').addEventListener('click', (e) => {
+  const action = e.target.closest('[data-top]')?.dataset.top;
+  if (!action) return;
+  toggleTopMenu(false);
+  if (action === 'edit') $('#editToggle').click();
+  if (action === 'lock') $('#lockBtn').click();
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!$('#topMenu').hidden && !e.target.closest('#topMenu, #menuBtn')) toggleTopMenu(false);
+});
+document.addEventListener('keydown', (e) => e.key === 'Escape' && !$('#topMenu').hidden && toggleTopMenu(false));
 $('#autoAssign').addEventListener('click', autoAssignAll);
 $('#unassignAll').addEventListener('click', unassignAll);
 
@@ -3199,7 +3257,7 @@ let panned = false;
 
 els.planWrap.addEventListener('click', (e) => {
   if (panned) return; // fin d'un déplacement du plan, pas un clic
-  if (!e.target.closest('.table, .zone')) clearSelection();
+  if (!e.target.closest('.table, .merge, .zone')) clearSelection(); // (le bloc d'une fusion compte comme ses tables)
 });
 
 /**
@@ -3342,10 +3400,11 @@ els.planWrap.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 && e.button !== 1) return;
   // Au doigt, hors édition, on peut faire glisser le plan en partant d'une table (le plan en est rempli)
   const fingerOnTable = e.pointerType !== 'mouse' && !state.editMode && !e.target.closest('.handle');
-  if (e.target.closest('.table, .zone, .handle') && !fingerOnTable) return;
+  if (e.target.closest('.table, .merge, .zone, .handle') && !fingerOnTable) return;
   if (pinch) return;
   if (state.editMode && e.button === 0 && !state.linking && !state.panMode) return startMarquee(e);
   const wrap = els.planWrap;
+  const pressOnTable = e.pointerType !== 'mouse' && Boolean(e.target.closest('.table.busy, .merge'));
   stopPlanGlide();
   const start = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
   const recent = []; // dernières positions du doigt, pour l'élan au relâchement
@@ -3356,7 +3415,9 @@ els.planWrap.addEventListener('pointerdown', (e) => {
     if (pinch || touchDrag) return (recent.length = 0); // deux doigts : zoom ; appui long : glisser une réservation
     const dx = ev.clientX - start.x;
     const dy = ev.clientY - start.y;
-    if (!panned && Math.hypot(dx, dy) < 4) return;
+    // Doigt posé sur une table occupée : on tolère le tremblement de l'appui long (sinon le plan
+    // bougerait de quelques pixels et annulerait le glisser de la réservation)
+    if (!panned && Math.hypot(dx, dy) < (pressOnTable ? MOVE_TOLERANCE : 4)) return;
     panned = true;
     wrap.classList.add('panning');
     wrap.scrollLeft = start.left - dx;

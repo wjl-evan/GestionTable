@@ -795,7 +795,7 @@ body.linking .table:hover .top { border-color: var(--warn); box-shadow: 0 0 0 4p
 
 /* Tables fusionnées : fond commun, les tables deviennent transparentes */
 .merge {
-  position: absolute; z-index: 1;
+  position: absolute; z-index: 1; cursor: grab;
   background: var(--accent-soft);
   border: 1.5px solid var(--accent);
   border-radius: 12px;
@@ -928,6 +928,15 @@ body.form-picking .table.busy:not(.grouping-pick) { opacity: .75; }
   box-shadow: var(--shadow-lg);
 }
 .drag-source { opacity: .45; }
+/* Appui long en cours : un anneau se remplit (≈ ⅓ s) puis l'élément se soulève — on sait quand bouger */
+.res-card.pressing, .table.pressing .top, .merge.pressing { animation: press-charge .33s linear forwards; }
+@keyframes press-charge {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); transform: none; }
+  to { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .res-card.pressing, .table.pressing .top, .merge.pressing { animation: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
+}
 body.touch-dragging, body.touch-dragging * { cursor: grabbing !important; }
 
 .drop-hint {
@@ -1178,10 +1187,47 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
 
 /* ---------- Responsive ---------- */
 
-/* Écrans moyens : en-tête sur deux lignes (titre + boutons, puis date, statistiques et service) */
-@media (max-width: 1400px) and (min-width: 701px) {
-  .topbar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px; }
-  .controls { order: 3; flex-basis: 100%; justify-content: space-between; }
+/* Menu de tablette et « Nouvelle réservation » sur le plan : cachés par défaut (grand écran, téléphone) */
+.menu-btn, .plan-new { display: none; }
+.top-menu {
+  position: fixed; left: 12px; top: 58px; z-index: 70;
+  display: flex; flex-direction: column; min-width: 250px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg);
+}
+.top-menu[hidden] { display: none; }
+.top-menu button {
+  display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.top-menu button:hover { background: var(--surface-2); }
+.top-menu button svg { color: var(--muted); flex: none; }
+
+/* Tablette et ordinateur : en-tête sur une seule ligne.
+   ☰ (Modifier le plan, Verrouiller) à gauche ; date et service côte à côte, puis les statistiques ;
+   « Nouvelle réservation » en haut à gauche du plan. */
+@media (min-width: 701px) {
+  .topbar { flex-wrap: nowrap; gap: 12px; padding: 8px 14px; }
+  .menu-btn { display: inline-grid; place-items: center; flex: none; }
+  .actions { display: none; }
+  /* En modification du plan : « Terminer » reste visible dans l'en-tête */
+  body.editing .actions { display: flex; }
+  body.editing #lockBtn { display: none; }
+  #today { display: none; } /* « Aujourd'hui » est dans le calendrier */
+  .controls { justify-content: flex-start; gap: 12px; min-width: 0; }
+  .controls .segmented { order: 1; flex: none; }
+  .top-stats { order: 2; flex: 1 1 auto; justify-content: flex-end; }
+
+  .plan-new {
+    display: inline-flex; align-items: center; gap: 6px;
+    position: absolute; left: 14px; top: 14px; z-index: 15;
+    box-shadow: var(--shadow-lg);
+  }
+  /* Pas de bouton par-dessus les barres de choix ni pendant la modification du plan */
+  body.editing .plan-new, body.grouping .plan-new, body.placing .plan-new, body.form-picking .plan-new { display: none; }
+}
+/* Tablette en portrait : on garde le logo, sans le titre */
+@media (max-width: 1100px) and (min-width: 701px) {
+  .brand > span:not(.brand-mark) { display: none; }
 }
 
 /* Tablette en portrait (et petits écrans d'ordinateur) : liste plus étroite, toujours à côté du plan */
