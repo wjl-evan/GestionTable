@@ -11,6 +11,14 @@ function sanitize(input, current = {}) {
   const t = { ...current };
   if (input.name !== undefined) t.name = String(input.name).trim().slice(0, 12) || current.name;
   if (input.seats !== undefined) t.seats = clamp(parseInt(input.seats, 10) || 1, 1, 20);
+  // Minimum de personnes pour le placement automatique (et la réservation en ligne) : de 1 (aucun) au nombre de places
+  if (input.minPeople !== undefined) {
+    const min = parseInt(input.minPeople, 10) || 1;
+    if (min > 1) t.minPeople = min;
+    else delete t.minPeople;
+  }
+  if (t.minPeople) t.minPeople = clamp(t.minPeople, 1, t.seats || 1);
+  if (t.minPeople === 1) delete t.minPeople;
   if (input.shape !== undefined) t.shape = input.shape === 'round' ? 'round' : 'rect';
   if (input.mergeable !== undefined) t.mergeable = Boolean(input.mergeable);
   // Côtés des chaises (tables rectangulaires) ; 'auto' = sur les deux grands côtés

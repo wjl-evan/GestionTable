@@ -99,3 +99,17 @@ test('placement auto : anticipe pour placer tout le monde', () => {
   assert.deepEqual(result.get('six').sort(), ['A', 'B']);
   assert.deepEqual(result.get('quatre'), ['C']);
 });
+
+test('minimum de personnes : la grande table est gardée aux groupes, même au prix d’une fusion', () => {
+  const tables = [{ ...T('big', 8, 0, 300, false), minPeople: 5 }, T('a', 2, 0), T('b', 2, 90)];
+  assert.deepEqual(bestPlacement(tables, 2), ['a']);
+  assert.deepEqual(new Set(bestPlacement(tables, 4)), new Set(['a', 'b'])); // fusion plutôt que la grande table
+  assert.deepEqual(bestPlacement(tables, 5), ['big']);
+  // Plus de petite table libre : un groupe de 2 reste à placer, la grande table n'est pas proposée
+  assert.equal(bestPlacement(tables, 2, new Set(['a', 'b'])), null);
+  const placed = autoAssign(tables, [{ id: 'r1', people: 2, time: '20:00' }, { id: 'r2', people: 6, time: '20:00' }]);
+  assert.deepEqual(placed.get('r2'), ['big']);
+  assert.deepEqual(placed.get('r1'), ['a']);
+  // À la main (dépôt sur la table), elle reste possible
+  assert.deepEqual(findCombination(tables, 'big', 2), ['big']);
+});

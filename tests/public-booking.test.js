@@ -203,3 +203,21 @@ test('réservation en ligne fermée : page et API refusent, avec le message choi
   assert.equal((await call('GET', `/api/public/availability?date=${DATE2}&people=2`)).status, 403);
   await asStaff('PUT', '/api/settings/booking', { enabled: true });
 });
+
+test('minimum de personnes par table : un groupe plus petit ne l’a pas, en ligne non plus', async () => {
+  const date = isoIn(6);
+  for (const id of ['t1', 't2']) {
+    const { status, data } = await asStaff('PUT', `/api/tables/${id}`, { minPeople: 3 });
+    assert.equal(status, 200);
+    assert.equal(data.minPeople, 3);
+  }
+  assert.equal((await slotsOn(date, 2))[0].full, true); // 2 personnes : aucune table pour eux
+  assert.equal((await slotsOn(date, 3))[0].full, false);
+  const small = await book({ name: 'Petit groupe', date, time: '12:30' });
+  assert.equal(small.status, 409);
+  assert.equal(small.data.reason, 'full');
+  assert.equal((await book({ name: 'Groupe de 3', people: 3, date, time: '12:30' })).status, 201);
+  // Minimum plafonné au nombre de places ; 1 = aucun minimum
+  assert.equal((await asStaff('PUT', '/api/tables/t1', { minPeople: 9 })).data.minPeople, 4);
+  for (const id of ['t1', 't2']) assert.equal((await asStaff('PUT', `/api/tables/${id}`, { minPeople: 1 })).data.minPeople, undefined);
+});

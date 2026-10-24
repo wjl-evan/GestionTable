@@ -213,6 +213,9 @@ export function capacityOf(tables, ids, groups = []) {
   return seats(ids) + maximal.reduce((s, g) => s + g.capacity - seats(g.tableIds), 0);
 }
 
+/** Nombre minimum de personnes pour que le placement automatique donne cette table (1 : aucun minimum). */
+export const minPeopleOf = (t) => Math.max(1, Number(t?.minPeople) || 1);
+
 /* ---------- Recherche de combinaisons ---------- */
 
 // Poids du score d'une combinaison (plus petit = meilleur)
@@ -311,10 +314,17 @@ export function createPlanner(tables, groups = []) {
     return best;
   }
 
-  /** Meilleures combinaisons sur toute la salle, triées (les moins "coûteuses" d'abord). */
+  /**
+   * Meilleures combinaisons sur toute la salle, triées (les moins "coûteuses" d'abord).
+   * Placement automatique : une table qui a un minimum de personnes (`minPeople`, ex. la grande table
+   * à partir de 5) n'est jamais donnée à un groupe plus petit, ni seule ni dans une fusion.
+   * (À la main, sur le plan, on peut toujours l'attribuer.)
+   */
   function candidates(people, busy = new Set(), limit = Infinity) {
     const seen = new Set();
     const list = [];
+    const tooBig = tables.filter((t) => minPeopleOf(t) > people).map((t) => t.id);
+    if (tooBig.length) busy = new Set([...busy, ...tooBig]);
     for (const t of tables) {
       const ids = find(t.id, people, busy, smartScore);
       if (!ids) continue;

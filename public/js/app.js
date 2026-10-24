@@ -3,7 +3,7 @@ import { initPickers, refreshPickers } from './pickers.js';
 import {
   areAdjacent, buildGraph, capacityOf, findCombination, groupOf, isActive, serviceOf, setKey, spanningEdges, statusOf,
   localDate, getServices, serviceById, isServiceOpen, setServices, isCancelled,
-  areasOf, areaOfTable, isAreaOpen, closedTableIds,
+  areasOf, areaOfTable, isAreaOpen, closedTableIds, minPeopleOf,
 } from '/shared/rules.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -1203,7 +1203,13 @@ function tableFormHtml(t) {
       <div class="row">
         <label class="field"><span>Nom</span><input name="name" value="${esc(t.name)}" maxlength="12" /></label>
         <label class="field"><span>Places</span><input name="seats" type="number" min="1" max="20" value="${t.seats}" /></label>
+        <label class="field" title="Le placement automatique et la réservation en ligne ne donnent pas cette table à un groupe plus petit. À la main, on peut toujours l’attribuer.">
+          <span>Minimum</span><input name="minPeople" type="number" min="1" max="${t.seats}" value="${minPeopleOf(t)}" />
+        </label>
       </div>
+      <p class="muted small-note">${minPeopleOf(t) > 1
+        ? `Placement auto et réservation en ligne : à partir de ${minPeopleOf(t)} personnes.`
+        : 'Minimum : 1 = n’importe quel groupe. Ex. 5 pour garder la grande table aux groupes.'}</p>
       <div class="row">
         <label class="field"><span>Forme</span>
           <select name="shape">
@@ -2110,6 +2116,7 @@ function renderInspector() {
       await saveTable(t.id, {
         name: fd.get('name'),
         seats: fd.get('seats'),
+        minPeople: fd.get('minPeople'),
         shape: fd.get('shape'),
         w: fd.get('w'),
         h: fd.get('h') ?? t.h,
@@ -2740,7 +2747,9 @@ function tableElement(t, res) {
   } else if (grouped) {
     top.innerHTML = `<span class="t-tag">${esc(t.name)}</span>`;
   } else {
-    top.innerHTML = `<span class="t-name">${esc(t.name)}</span><span class="t-seats">${t.seats} pl.</span>`;
+    // Avec un minimum : « 5-8 pl. » (le placement automatique ne la donne qu'à partir de 5)
+    const min = minPeopleOf(t);
+    top.innerHTML = `<span class="t-name">${esc(t.name)}</span><span class="t-seats"${min > 1 ? ` title="À partir de ${min} personnes (placement automatique)"` : ''}>${min > 1 ? `${min}-` : ''}${t.seats} pl.</span>`;
   }
   el.append(top);
   if (res?.pinned && !grouped) el.insertAdjacentHTML('beforeend', pinBadge());
@@ -3872,7 +3881,7 @@ function openTableMenu(t) {
   const todo = activeReservations().filter((r) => !r.tableIds.length && !r.archived);
   tableMenuEl.innerHTML = `<div class="dt">
       <div class="dt-head">
-        <div class="dt-title"><h2 id="tableMenuTitle">${esc(t.name)}</h2><span class="muted">${t.seats} places · libre</span></div>
+        <div class="dt-title"><h2 id="tableMenuTitle">${esc(t.name)}</h2><span class="muted">${t.seats} places${minPeopleOf(t) > 1 ? ` (dès ${minPeopleOf(t)} pers.)` : ''} · libre</span></div>
         <button type="button" class="icon-btn" data-tm-close aria-label="Fermer">✕</button>
       </div>
       ${freeTableActionsHtml(t)}

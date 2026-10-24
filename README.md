@@ -112,6 +112,10 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   donne en priorité les tables **peu polyvalentes** (isolées, sans fusion) et garde libres celles qui
   permettent de grandes tables (ex. T1 + T2 = 10 n'est pas cassée pour un groupe de 4). Si une réservation
   resterait sans table, il recommence en anticipant : chaque choix est jugé sur ce qu'il laisse pour la suite.
+- **Minimum de personnes par table** (édition du plan, champ « Minimum ») : le placement automatique et la
+  réservation en ligne ne donnent jamais cette table (seule ou fusionnée) à un groupe plus petit — ex. la table de 8
+  à partir de 5. Plus d'autre table libre : le groupe reste « à placer » (en ligne : service complet). À la main, sur
+  le plan, on peut toujours l'attribuer. Sur le plan, une table libre affiche alors « 5-8 pl. ».
 - **Historique** (en bas de la fiche d'une réservation) : création, chaque modification (nom, personnes, date, heure,
   téléphone, notes : avant → après), arrivée / départ, annulation, rétablissement. Les changements de tables ne sont
   pas notés. À l'anonymisation, les anciens noms / téléphones / notes de l'historique sont effacés aussi.
@@ -146,7 +150,7 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   réservation est fixée ou si ses clients sont déjà installés.
 - **Salle entièrement personnalisable** (bouton « Modifier le plan ») :
   - dimensions de la salle (jusqu'à 4000 × 4000) ;
-  - tables : ajout, déplacement, redimensionnement (poignée), nom, places, forme, fusionnable ou non ;
+  - tables : ajout, déplacement, redimensionnement (poignée), nom, places, minimum de personnes, forme, fusionnable ou non ;
   - éléments : bar, entrée, fenêtre, mur, cuisine, toilettes, zone libre (terrasse, salon…) — à placer,
     redimensionner, renommer ;
   - « Repartir d'un plan vierge » pour dessiner sa salle de zéro ;
