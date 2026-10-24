@@ -1,16 +1,18 @@
 // Réservation en ligne par les clients (page publique, sans compte).
 // Le client choisit le nombre de personnes, la date, un créneau d'un service ouvert,
 // et laisse ses coordonnées. Il ne choisit pas de table : une table libre lui est attribuée
-// automatiquement ; s'il n'y en a plus, le service est « complet ».
+// automatiquement ; s'il n'y en a plus, le service est « complet ». Les zones « en dernier recours »
+// (ex. l'étage) ne servent que si le reste est plein ; si la table tombe dans une zone qui demande
+// l'accord du client, il est prévenu (description de la zone) et doit accepter avant de réserver.
 // Les règles (délai, jours à l'avance, créneaux, champs obligatoires…) sont réglables : voir src/booking.js.
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { getDb, persist, httpError } from '../store.js';
-import { autoAssign, getServices, isActive, isServiceOpen, localDate, serviceOf } from '../../shared/rules.js';
+import { areaOfTable, autoAssignByPriority, getServices, isActive, isServiceOpen, localDate, serviceOf } from '../../shared/rules.js';
 import { serviceExceptions } from '../services.js';
 import { broadcast } from '../events.js';
 import { bookingSettings } from '../booking.js';
-import { addHistory, autoPlace, busyTables } from './reservations.js';
+import { addHistory, busyTables } from './reservations.js';
 
 const MAX_PER_HOUR = 5; // réservations en ligne par adresse IP et par heure (anti-abus)
 
@@ -48,12 +50,20 @@ function assertBookableDate(date, settings) {
   }
 }
 
-/** Reste-t-il une table pour ce groupe à ce service ? (même règle que pour l'équipe) */
-function hasTable(date, time, people) {
+/** Tables que ce groupe aurait à ce service (même règle que pour l'équipe), ou null si c'est complet. */
+function placementFor(r) {
   const db = getDb();
-  const probe = { id: 'probe', date, time, people, tableIds: [], status: 'expected' };
-  return autoAssign(db.tables, [probe], busyTables(probe), db.groups).has(probe.id);
+  // busyTables : occupées, ou dans une zone fermée ; les zones « en dernier recours » passent après les autres
+  return autoAssignByPriority(db.tables, db.zones, [r], busyTables(r), db.groups).get(r.id) ?? null;
 }
+
+/** Zone des tables attribuées, si elle demande l'accord du client (ex. l'étage, accès par un escalier). */
+function confirmAreaOf(tableIds) {
+  const db = getDb();
+  const area = tableIds?.length ? areaOfTable(db.tables.find((t) => t.id === tableIds[0]), db.zones) : null;
+  return area?.confirm ? area : null;
+}
+const publicArea = (a) => ({ id: a.id, label: a.label, description: a.description ?? '' });
 
 /** Couverts déjà réservés à cette heure précise (en ligne et par l'équipe). */
 function coversAt(date, time) {
@@ -63,17 +73,21 @@ function coversAt(date, time) {
 /**
  * Services ouverts ce jour-là, avec leurs créneaux : indisponible si trop tôt (délai minimum),
  * si l'heure a déjà son maximum de couverts, ou si le service n'a plus de table pour ce groupe.
+ * `notice` : la table serait dans une zone qui demande l'accord du client (sa description le prévient).
  */
 function availability(date, people, settings) {
   return getServices()
     .filter((s) => isServiceOpen(date, s.id, serviceExceptions()))
     .map((s) => {
       const slots = slotsOf(s, settings.step).filter((time) => farEnough(date, time, settings));
-      const full = slots.length > 0 && !hasTable(date, s.start, people);
+      const placement = slots.length ? placementFor({ id: 'probe', date, time: s.start, people, tableIds: [], status: 'expected' }) : null;
+      const full = slots.length > 0 && !placement;
+      const notice = confirmAreaOf(placement);
       return {
         id: s.id,
         label: s.label,
         full,
+        notice: notice ? publicArea(notice) : null,
         slots: slots.map((time) => ({
           time,
           available: !full && (!settings.maxCoversPerSlot || coversAt(date, time) + people <= settings.maxCoversPerSlot),
@@ -191,14 +205,25 @@ router.post('/reservations', async (req, res) => {
     source: 'online',
     createdAt: new Date().toISOString(),
   };
+  // Une table libre lui est attribuée tout de suite. Dans une zone qui demande son accord (ex. l'étage) :
+  // il doit l'avoir accepté (la place a pu changer depuis l'affichage des horaires : on le revérifie ici)
+  r.tableIds = placementFor(r) ?? [];
+  const confirmArea = confirmAreaOf(r.tableIds);
+  if (confirmArea && b.acceptArea !== confirmArea.id) {
+    throw httpError(
+      409,
+      `Il ne reste de la place que dans la zone « ${confirmArea.label} »${confirmArea.description ? ` (${confirmArea.description})` : ''}. Merci de confirmer que cela vous convient.`,
+      'area_confirm'
+    );
+  }
+  if (confirmArea) r.areaAccepted = confirmArea.id; // noté pour l'équipe
   addHistory(r, req, { type: 'created', by: 'Réservation en ligne', people, date, time });
   getDb().reservations.push(r);
-  autoPlace(r); // une table libre lui est attribuée tout de suite
   await persist();
   attempts.set(ip, [...recent, Date.now()]);
   broadcast({ scope: 'reservations', origin: null }); // les appareils de l'équipe la voient aussitôt
   // Au client : seulement ce qu'il a réservé (jamais la table ni les autres réservations)
-  res.status(201).json({ ok: true, name, people, date, time, service: service.label });
+  res.status(201).json({ ok: true, name, people, date, time, service: service.label, area: confirmArea ? publicArea(confirmArea) : null });
 });
 
 router.use((req, res) => res.status(404).json({ error: 'Route inconnue' }));

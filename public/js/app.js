@@ -3,13 +3,34 @@ import { initPickers, refreshPickers } from './pickers.js';
 import {
   areAdjacent, buildGraph, capacityOf, findCombination, groupOf, isActive, serviceOf, setKey, spanningEdges, statusOf,
   localDate, getServices, serviceById, isServiceOpen, setServices, isCancelled,
+  areasOf, areaOfTable, isAreaOpen, closedTableIds,
 } from '/shared/rules.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const SNAP = 10;
 
+/** Préférence de cet appareil (peut être indisponible : navigation privée…). */
+function readStored(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeStored(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    /* rien à faire : la préférence ne sera simplement pas gardée */
+  }
+}
+
+writeStored('gt_area', null); // ancienne préférence (choix de la zone affichée, retiré)
+
 const state = {
   user: null, // compte connecté : { id, name, email, role }
+  listOnly: readStored('gt_list_only') === '1', // plan fermé : liste seule, une ligne par réservation
   formPick: null, // choix des tables sur le plan depuis le formulaire : { tableIds, name, people }
   room: { w: 1000, h: 620 },
   zones: [],
@@ -177,10 +198,21 @@ function occupancy() {
 }
 
 function busyExcept(resId) {
-  const set = new Set();
+  const set = closedTables();
   for (const r of activeReservations()) if (r.id !== resId) r.tableIds.forEach((id) => set.add(id));
   return set;
 }
+
+/* ---------- Zones (salle, étage, terrasse…) ---------- */
+
+/** Tables des zones fermées pour la date et le service affichés. */
+const closedTables = () => closedTableIds(state.tables, state.zones, state.date, state.service);
+
+/** Zone d'une réservation (celle de sa première table). */
+const areaOfReservation = (r) => {
+  const t = r.tableIds.map(tableById).find(Boolean);
+  return t ? areaOfTable(t, state.zones) : null;
+};
 
 const hhmm = (iso) => (iso ? new Date(iso).toTimeString().slice(0, 5) : '');
 
@@ -344,6 +376,16 @@ async function loadReservations() {
 /* ---------- Rendu ---------- */
 
 function render() {
+  // Placer une réservation (choix d'une table, regroupement) a besoin du plan : on le rouvre le temps
+  // du placement, puis on le referme
+  const placing = Boolean(state.placing || state.grouping || state.formPick);
+  if (state.listOnly && placing) {
+    setListOnly(false, false);
+    reopenedForPlacing = true;
+  } else if (reopenedForPlacing && !placing) {
+    reopenedForPlacing = false;
+    if (!state.editMode) setListOnly(true, false);
+  }
   ensureService();
   renderControls();
   renderStats();
@@ -357,8 +399,86 @@ function render() {
   renderDetail();
 }
 
+/* ---------- Largeur de la liste à côté du plan (poignée entre les deux) ---------- */
+
+const LIST_MIN = 300;
+const PLAN_MIN = 320;
+const resizer = $('#listResizer');
+
+/** Largeur choisie (px) ; null = taille par défaut (selon l'écran). Gardée sur cet appareil. */
+function setListWidth(px, save = true) {
+  const layout = $('.layout').getBoundingClientRect();
+  if (px !== null) px = Math.round(Math.min(Math.max(px, LIST_MIN), Math.max(LIST_MIN, layout.width - PLAN_MIN)));
+  if (px === null) document.body.style.removeProperty('--list-w');
+  else document.body.style.setProperty('--list-w', `${px}px`);
+  resizer.setAttribute('aria-valuenow', String(Math.round($('#resList').getBoundingClientRect().width)));
+  if (save) writeStored('gt_list_w', px === null ? null : String(px));
+}
+const storedListW = Number(readStored('gt_list_w'));
+if (storedListW) document.body.style.setProperty('--list-w', `${storedListW}px`);
+
+resizer.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  resizer.setPointerCapture(e.pointerId);
+  resizer.classList.add('dragging');
+  document.body.classList.add('resizing-list');
+  const left = $('.layout').getBoundingClientRect().left;
+  const move = (ev) => setListWidth(ev.clientX - left, false);
+  const end = () => {
+    resizer.removeEventListener('pointermove', move);
+    resizer.classList.remove('dragging');
+    document.body.classList.remove('resizing-list');
+    setListWidth($('#resList').getBoundingClientRect().width); // enregistre la largeur finale
+  };
+  resizer.addEventListener('pointermove', move);
+  resizer.addEventListener('pointerup', end, { once: true });
+  resizer.addEventListener('pointercancel', end, { once: true });
+});
+resizer.addEventListener('dblclick', () => setListWidth(null));
+// Clavier : flèches gauche / droite (20 px, 60 px avec Maj)
+resizer.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  const step = (e.shiftKey ? 60 : 20) * (e.key === 'ArrowLeft' ? -1 : 1);
+  setListWidth($('#resList').getBoundingClientRect().width + step);
+});
+
+/**
+ * Classes de mise en page : plan fermé (list-only), barre d'outils sur une ligne (toolbar : ordinateur / tablette),
+ * une ligne par réservation (compact : plan fermé, ou téléphone en « Compacte » ; plan ouvert : cartes détaillées).
+ * Aussi appelée au redimensionnement : passer de téléphone à tablette ne doit rien laisser de travers.
+ */
+function applyLayoutClasses() {
+  const listOnly = state.listOnly && !state.editMode;
+  document.body.classList.toggle('list-only', listOnly);
+  document.body.classList.toggle('toolbar', !isPhone() && !state.editMode);
+  document.body.classList.toggle('compact', listOnly);
+}
+window.addEventListener('resize', () => applyLayoutClasses());
+
+let reopenedForPlacing = false; // plan rouvert automatiquement pour placer une réservation
+
+/** Ferme / rouvre le plan (choix gardé sur cet appareil). */
+function setListOnly(on, redraw = true) {
+  if (redraw) reopenedForPlacing = false; // choix de l'utilisateur : on ne le change plus tout seul
+  state.listOnly = on;
+  writeStored('gt_list_only', on ? '1' : null);
+  if (on && isPhone()) state.view = 'list';
+  if (redraw) render();
+}
+$('#planToggle').addEventListener('click', () => setListOnly(!state.listOnly));
+
 function renderControls() {
   els.date.value = state.date;
+  const listOnly = state.listOnly && !state.editMode;
+  applyLayoutClasses();
+  $('#planToggle').setAttribute('aria-pressed', String(listOnly));
+  // Téléphone : le plan est déjà un autre écran ; le bouton passe la liste en lignes compactes
+  $('#planToggleLabel').textContent = isPhone() ? 'Compacte' : listOnly ? 'Afficher le plan' : 'Masquer le plan';
+  $('#planToggle').title = isPhone()
+    ? (listOnly ? 'Revenir aux cartes détaillées' : 'Une ligne par réservation, pour en voir un maximum')
+    : listOnly ? 'Rouvrir le plan à côté de la liste' : 'Fermer le plan : la liste prend toute la place, une ligne par réservation';
   refreshPickers($('.date-nav'));
   // Boutons des services du jour (barré : fermé ce jour-là mais avec des réservations)
   const list = dayServices();
@@ -476,7 +596,7 @@ function cardHtml(r) {
   const status = displayStatus(r);
   const statusTime = status === 'arrived' ? hhmm(r.arrivedAt) : status === 'left' ? hhmm(r.leftAt) : '';
   // Statut : petit point de couleur + libellé. Arrivé : un ↶ juste à côté annule une arrivée cochée par erreur.
-  const statusTag = `<span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${
+  const statusTag = `<span class="rc-status ${status}" title="${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}"><i class="rc-dot"></i><span class="rc-status-text">${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}</span>${
     status === 'arrived' ? `<button type="button" class="rc-undo" data-action="unarrive" title="Annuler l’arrivée">${ICONS.undo}</button>` : ''
   }</span>`;
   // À placer : orange ; rouge si les clients sont déjà là sans table
@@ -485,16 +605,29 @@ function cardHtml(r) {
   // Ligne 1 : nom, nombre de personnes, action principale. Ligne 2 : statut, table. Puis les notes, s'il y en a.
   return `
     <div class="rc-head">
-      <span class="rc-name">${highlight(r.name, state.search)}${r.source === 'online' ? ' <span class="online-tag" title="Réservée par le client sur la page de réservation">En ligne</span>' : ''}</span>
+      <span class="rc-name">${highlight(r.name, state.search)}</span>
+      ${noteFlags(r)}
       <span class="rc-people" title="${r.people} personne${r.people > 1 ? 's' : ''}">${r.people}<small>pers.</small></span>
       ${r.archived ? '' : `<span class="rc-main">${mainActionHtml(r, status)}</span>`}
       <span class="rc-sub">
         ${statusTag}
-        <span class="rc-tables">${placed ? tablesPill(r, status) : todo}</span>
+        <span class="rc-tables">${placed ? areaTag(r) + tablesPill(r, status) : todo}</span>
       </span>
     </div>
     ${r.notes ? `<p class="rc-note client" title="Demande du client">${ICONS.quote}<span>${esc(r.notes)}</span></p>` : ''}
     ${r.internalNote ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>` : ''}`;
+}
+
+/**
+ * Vue en lignes (plan fermé) : les notes ne tiennent pas sur la ligne. Grand écran : leur début ;
+ * sinon une icône (le texte complet au survol, et dans la fiche).
+ */
+function noteFlags(r) {
+  if (!r.notes && !r.internalNote) return '<span class="rc-flags"></span>';
+  const parts = [];
+  if (r.notes) parts.push(`<span class="rc-flag client" title="Demande du client : ${esc(r.notes)}">${ICONS.quote}<span>${esc(r.notes)}</span></span>`);
+  if (r.internalNote) parts.push(`<span class="rc-flag internal" title="Note interne : ${esc(r.internalNote)}">${ICONS.pin}<span>${esc(r.internalNote)}</span></span>`);
+  return `<span class="rc-flags">${parts.join('')}</span>`;
 }
 
 async function saveInternalNote(r, text) {
@@ -594,12 +727,16 @@ const detailEl = $('#resDetail');
 let detailId = null;
 let keepSelectionOnClose = false;
 
-/** Téléphone : le plan est sur un autre écran ; on y va, centré sur la table mise en évidence. */
+/**
+ * « Voir sa table » : la fiche se ferme et le plan montre la table, mise en évidence (les autres s'effacent).
+ * Plan fermé : on l'ouvre. Téléphone : le plan est sur un autre écran, on y va.
+ */
 function showOnPlan(r) {
   keepSelectionOnClose = true;
   closeDetail();
   state.selectedRes = r.id;
-  setView('plan');
+  if (state.listOnly) setListOnly(false, false);
+  if (isPhone()) setView('plan');
   render();
   requestAnimationFrame(() => requestAnimationFrame(() => revealTables(r.tableIds)));
 }
@@ -644,7 +781,9 @@ detailEl.addEventListener('click', (e) => {
   if (e.target.closest('[data-detail="close"]')) return closeDetail();
   const action = e.target.closest('[data-action]')?.dataset.action;
   const r = resById(detailId);
-  if (action && r) resAction(r, action);
+  if (!action || !r) return;
+  if (action === 'arrive') closeDetail(); // clients arrivés : rien d'autre à faire dans la fiche
+  resAction(r, action);
 });
 
 function renderDetail() {
@@ -664,6 +803,7 @@ function renderDetail() {
   const rows = [
     row(ICONS.clock, 'Quand', `${esc(longDate(r.date))} · <b>${esc(r.time)}</b>`),
     row(ICONS.table, 'Tables', `${tables}${placed && status !== 'left' ? ` <span class="muted">${capacity} places</span>` : ''}`),
+    areaRow(r, row),
     r.phone ? row(ICONS.phone, 'Téléphone', `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}">${esc(r.phone)}</a>`) : '',
     r.email ? row(ICONS.mail, 'Email', `<a class="rc-phone" href="mailto:${esc(r.email)}">${esc(r.email)}</a>`) : '',
     r.notes ? row(ICONS.quote, 'Demande', esc(r.notes)) : '',
@@ -678,7 +818,7 @@ function renderDetail() {
   // Toutes les actions, avec leur libellé
   const actions = active
     ? [
-        placed && isPhone() ? actionBtn('show', ICONS.table, 'Voir sur le plan', 'Ouvrir le plan, sa table mise en évidence', 'primary') : '',
+        placed ? actionBtn('show', ICONS.table, 'Voir sa table', 'Fermer la fiche et montrer sa table sur le plan', 'primary') : '',
         r.pinned ? '' : actionBtn('place', ICONS.table, placed ? 'Changer de table' : 'Placer sur une table', 'Toucher ensuite une table du plan'),
         placed
           ? r.pinned
@@ -709,6 +849,28 @@ function renderDetail() {
       ${actions ? `<div class="dt-actions">${actions}</div>` : ''}
       ${historyHtml(r)}
     </div>`;
+}
+
+/** Étiquette de la carte, à gauche des tables : zone où la réservation est placée (Salle, Étage…). */
+function areaTag(r) {
+  const area = areaOfReservation(r);
+  if (!area || area.hideTag) return ''; // zone « par défaut » (ex. la salle) : pas besoin de la rappeler
+  const color = area.color ? ` colored" style="--zone-color:${area.color}` : '';
+  return `<span class="area-tag${color}" title="Zone : ${esc(area.label)}">${esc(area.label)}</span>`;
+}
+
+/** Ligne « Zone » de la fiche : zone des tables (avec sa description), et si le client l'a acceptée en ligne. */
+function areaRow(r, row) {
+  const area = areaOfReservation(r);
+  const accepted = r.areaAccepted && areasOf(state.zones).find((a) => a.id === r.areaAccepted);
+  if (!area && !accepted) return '';
+  const parts = [];
+  if (area) parts.push(`<b>${esc(area.label)}</b>${area.description ? ` <span class="muted">— ${esc(area.description)}</span>` : ''}`);
+  if (accepted && accepted === area) parts.push('<span class="muted">(acceptée par le client)</span>');
+  else if (accepted) parts.push(`<span class="pill todo">Le client avait accepté : ${esc(accepted.label)}</span>`);
+  // Déplacé par l'équipe dans une zone que le client n'a pas acceptée : à le prévenir
+  else if (area?.confirm && r.source === 'online') parts.push('<span class="pill todo">Client pas encore prévenu</span>');
+  return row(ICONS.table, 'Zone', parts.join(' '));
 }
 
 /* ---------- Historique d'une réservation ---------- */
@@ -1050,8 +1212,53 @@ function zoneFormHtml(z) {
         <label class="field"><span>Largeur</span><input name="w" type="number" min="10" step="10" value="${z.w}" /></label>
         <label class="field"><span>Hauteur</span><input name="h" type="number" min="10" step="10" value="${z.h}" /></label>
       </div>
+      ${z.type === 'area' ? areaFieldsHtml(z) : ''}
       <button type="button" class="btn danger ghost" data-action="delete">Supprimer l'élément</button>
     </form>`;
+}
+
+/** Couleurs proposées pour les zones (lisibles en mode clair et sombre). */
+const ZONE_COLORS = [
+  ['#3b82f6', 'Bleu'], ['#10b981', 'Vert'], ['#f59e0b', 'Ambre'], ['#ef4444', 'Rouge'],
+  ['#8b5cf6', 'Violet'], ['#ec4899', 'Rose'], ['#14b8a6', 'Turquoise'], ['#78716c', 'Gris'],
+];
+
+/** Zone (salle, étage, terrasse…) : description pour les clients, jours et services d'ouverture. */
+function areaFieldsHtml(z) {
+  const days = z.days ?? [0, 1, 2, 3, 4, 5, 6];
+  const services = getServices();
+  const count = state.tables.filter((t) => areaOfTable(t, state.zones) === z).length;
+  return `<div class="area-box">
+      <p class="muted small-note"><b>${count} table${count > 1 ? 's' : ''}</b> dans cette zone (toutes celles dont le centre est dans le rectangle).</p>
+      <label class="switch"><input type="checkbox" name="overflow" ${z.overflow ? 'checked' : ''} /><span></span>En dernier recours : seulement quand les autres zones sont pleines</label>
+      <label class="switch"><input type="checkbox" name="confirm" ${z.confirm ? 'checked' : ''} /><span></span>En ligne : le client doit accepter cette zone avant de réserver</label>
+      <label class="switch"><input type="checkbox" name="hideTag" ${z.hideTag ? 'checked' : ''} /><span></span>Ne pas afficher la zone sur les cartes de la liste</label>
+      <div class="field"><span>Couleur <em>— sur les cartes des réservations</em></span>
+        <div class="zone-colors" role="radiogroup" aria-label="Couleur de la zone">
+          <button type="button" class="zone-color none${z.color ? '' : ' on'}" data-zone-color="" role="radio" aria-checked="${!z.color}" title="Sans couleur">∅</button>
+          ${ZONE_COLORS.map(([hex, name]) => `<button type="button" class="zone-color${z.color === hex ? ' on' : ''}" data-zone-color="${hex}" role="radio"
+            aria-checked="${z.color === hex}" title="${name}" aria-label="${name}" style="--zone-color:${hex}"></button>`).join('')}
+          <label class="zone-color custom${z.color && !ZONE_COLORS.some(([hex]) => hex === z.color) ? ' on' : ''}" title="Autre couleur…">
+            <input type="color" data-zone-custom value="${z.color ?? '#3b82f6'}" aria-label="Autre couleur" /></label>
+        </div>
+      </div>
+      <label class="field"><span>Description <em>— montrée au client avant qu'il accepte, et à l'équipe</em></span>
+        <textarea name="description" rows="2" maxlength="300" placeholder="À l'étage : accès par un escalier.">${esc(z.description ?? '')}</textarea></label>
+      <div class="field"><span>Jours d'ouverture</span>
+        <div class="svc-days" role="group" aria-label="Jours d'ouverture de la zone">
+          ${WEEK.map((d, n) => `<button type="button" class="svc-day${days.includes(n) ? ' on' : ''}" data-area-day="${n}" aria-pressed="${days.includes(n)}" title="${WEEK_FULL[n]}">${d}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><span>Services <em>— aucun coché : tous</em></span>
+        <div class="area-services">
+          ${services.map((s) => `<label class="switch"><input type="checkbox" name="services" value="${esc(s.id)}" ${z.services?.includes(s.id) ? 'checked' : ''} /><span></span>${esc(s.label)}</label>`).join('')}
+        </div>
+      </div>
+      <p class="muted small-note">En dernier recours : « Auto », la création d'une réservation et la réservation en ligne remplissent
+      d'abord les autres zones. Fermée (jours / services) : ses tables ne sont pas proposées du tout et sont grisées sur le plan.
+      On peut toujours y placer quelqu'un à la main : en glissant sa carte sur une table (zone en dernier recours),
+      ou avec « Sur le plan » (zone fermée).</p>
+    </div>`;
 }
 
 /** Bloc "fusion" de la sélection : créer une grande table, ou régler celle qui existe déjà. */
@@ -1799,11 +2006,34 @@ function renderInspector() {
       const type = fd.get('type');
       // Nom par défaut → suit le changement de type
       const label = type !== z.type && z.label === ZONE_TYPES[z.type]?.label ? ZONE_TYPES[type].label : fd.get('label');
-      await saveZone(z.id, { label, type, w: fd.get('w'), h: fd.get('h') });
+      const area = fd.has('description')
+        ? { description: fd.get('description'), services: fd.getAll('services'), overflow: fd.has('overflow'), confirm: fd.has('confirm'), hideTag: fd.has('hideTag') }
+        : {};
+      await saveZone(z.id, { label, type, w: fd.get('w'), h: fd.get('h'), ...area });
     }
     render();
   });
   $('[data-action="delete"]', form).addEventListener('click', () => (t ? removeTable(t) : removeZone(z)));
+  // Couleur d'une zone : pastille de la liste, ou « Autre couleur… »
+  const setColor = async (color) => {
+    await saveZone(z.id, { color });
+    render();
+  };
+  form.querySelectorAll('[data-zone-color]').forEach((b) => b.addEventListener('click', () => setColor(b.dataset.zoneColor)));
+  form.querySelector('[data-zone-custom]')?.addEventListener('change', (e) => {
+    e.stopPropagation(); // pas d'enregistrement de tout le formulaire pour ça
+    setColor(e.target.value);
+  });
+  // Jours d'ouverture d'une zone : tous allumés = ouverte tous les jours
+  form.querySelectorAll('[data-area-day]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const n = Number(b.dataset.areaDay);
+      const days = z.days ?? [0, 1, 2, 3, 4, 5, 6];
+      const next = days.includes(n) ? days.filter((d) => d !== n) : [...days, n].sort();
+      await saveZone(z.id, { days: next.length === 7 ? null : next });
+      render();
+    })
+  );
 }
 
 function chairPositions(t) {
@@ -1875,6 +2105,8 @@ function renderPlan() {
   plan.style.width = `${room.w}px`;
   plan.style.height = `${room.h}px`;
 
+  const closed = state.editMode ? new Set() : closedTables();
+
   for (const z of state.zones) plan.append(zoneElement(z));
 
   // Deux calques : les traits sous les tables, les capacités au-dessus
@@ -1899,10 +2131,19 @@ function renderPlan() {
   lastSpot = spot ? state.selectedRes : null;
 
   if (!state.editMode) {
-    for (const r of activeReservations()) if (r.tableIds.length > 1) renderMergedGroup(r);
+    for (const r of activeReservations()) {
+      if (r.tableIds.length > 1) renderMergedGroup(r);
+    }
   }
 
-  for (const t of state.tables) plan.append(tableElement(t, state.editMode ? null : occ.get(t.id)));
+  for (const t of state.tables) {
+    const el = tableElement(t, state.editMode ? null : occ.get(t.id));
+    if (closed.has(t.id)) {
+      el.classList.add('area-closed');
+      el.title = `${t.name} — zone fermée à ce service`;
+    }
+    plan.append(el);
+  }
   updateScale();
 }
 
@@ -2088,11 +2329,12 @@ function renderLinks() {
 
 function zoneElement(z) {
   const el = document.createElement('div');
-  el.className = `zone zone-${z.type || 'area'}${z.w < 40 || z.h < 30 ? ' thin' : ''}`;
+  const closed = z.type === 'area' && !state.editMode && !isAreaOpen(z, state.date, state.service);
+  el.className = `zone zone-${z.type || 'area'}${z.w < 40 || z.h < 30 ? ' thin' : ''}${closed ? ' closed' : ''}`;
   el.dataset.id = z.id;
-  el.title = z.label;
+  el.title = [z.label, z.description, closed ? 'Fermée à ce service' : ''].filter(Boolean).join(' — ');
   Object.assign(el.style, { left: `${z.x}px`, top: `${z.y}px`, width: `${z.w}px`, height: `${z.h}px` });
-  el.innerHTML = `<span>${esc(z.label)}</span>`;
+  el.innerHTML = `<span>${esc(z.label)}${closed ? ' <em>· fermée</em>' : ''}</span>`;
   if (state.editMode) {
     if (isPicked('zone', z.id)) decoratePicked(el, z, 'zone');
     el.addEventListener('pointerdown', (e) => startMove(e, z, el, 'zone'));
@@ -3982,6 +4224,7 @@ $('#editToggle').addEventListener('click', () => {
 });
 $('#newRes').addEventListener('click', () => openDialog());
 $('#planNewRes').addEventListener('click', () => openDialog());
+$('#listNewRes').addEventListener('click', () => openDialog());
 
 /* Tablette : menu en haut à gauche (Modifier le plan, Paramètres, Se déconnecter) */
 function toggleTopMenu(open = $('#topMenu').hidden) {

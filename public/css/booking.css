@@ -68,18 +68,38 @@ button, input, textarea { font: inherit; color: inherit; }
   background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
   padding: 8px 24px 24px;
 }
-.bk-step { padding: 20px 0; border-bottom: 1px solid var(--line); }
-.bk-step h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 16px; font-weight: 600; }
-.bk-num {
-  display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none;
-  border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600;
+/* Barre de progression : un segment par étape */
+.bk-progress { padding: 18px 0 6px; }
+.bk-progress-text { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.bk-progress ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.bk-progress button {
+  width: 100%; display: flex; flex-direction: column; gap: 7px; padding: 0;
+  border: 0; background: none; text-align: left; font-size: 12.5px; color: var(--muted); cursor: default;
 }
+.bk-progress i { display: block; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; position: relative; }
+.bk-progress i::after {
+  content: ''; position: absolute; inset: 0; width: 0; border-radius: inherit; background: var(--accent);
+  transition: width .35s ease;
+}
+.bk-progress .done i::after, .bk-progress .current i::after { width: 100%; }
+.bk-progress .done button, .bk-progress .reachable button { cursor: pointer; color: var(--ink-2); }
+.bk-progress .done button:hover span, .bk-progress .reachable button:hover span { color: var(--accent); }
+.bk-progress .current button { color: var(--ink); font-weight: 600; }
+.bk-progress button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.bk-step { padding: 18px 0 8px; animation: bk-in .25s ease; }
+@keyframes bk-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .bk-step { animation: none; } .bk-progress i::after { transition: none; } }
+.bk-step h2 { margin: 0 0 6px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; outline: none; }
+.bk-recap { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
+.bk-recap b { color: var(--ink-2); font-weight: 600; }
+.bk-step[data-step="1"] h2 { margin-bottom: 18px; }
 .bk-hint { margin: 8px 0 0; color: var(--muted); font-size: 13.5px; }
 
 /* 1. Personnes */
 .bk-people { display: flex; align-items: center; gap: 18px; }
-.bk-people output { min-width: 130px; text-align: center; font-size: 15px; color: var(--ink-2); }
-.bk-people output b { font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bk-people-count { min-width: 130px; text-align: center; font-size: 15px; color: var(--ink-2); }
+.bk-people-count b { font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .bk-round {
   width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-strong);
   background: var(--surface-2); font-size: 20px; cursor: pointer;
@@ -110,6 +130,20 @@ button, input, textarea { font: inherit; color: inherit; }
 .bk-day.empty { visibility: hidden; }
 .bk-legend { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 
+/* 3. Accord pour une zone (ex. l'étage) */
+.bk-consent {
+  margin-top: 16px; padding: 14px 16px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #b7791f 45%, transparent);
+  background: color-mix(in srgb, #b7791f 10%, var(--surface));
+}
+.bk-consent p { margin: 0 0 10px; font-size: 14px; }
+.bk-check-row { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
+.bk-check-row input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
+.bk-area-note {
+  margin: 8px 0 0; padding: 10px 14px; border-radius: 10px;
+  background: var(--accent-soft); font-size: 14px; max-width: 420px;
+}
+
 /* 3. Créneaux */
 .bk-service + .bk-service { margin-top: 16px; }
 .bk-service h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
@@ -138,10 +172,13 @@ button, input, textarea { font: inherit; color: inherit; }
 .bk-field input.invalid { border-color: var(--danger); }
 .bk-trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 
-.bk-submit { display: flex; flex-direction: column; gap: 10px; padding-top: 20px; }
-.bk-summary { margin: 0; font-size: 14px; color: var(--ink-2); }
+/* Retour / Continuer */
+.bk-nav { display: flex; gap: 10px; padding-top: 18px; margin-top: 10px; border-top: 1px solid var(--line); }
+.bk-nav .bk-btn { flex: 1; }
+.bk-nav #backBtn { flex: 0 0 auto; min-width: 110px; }
+.bk-summary { margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }
 .bk-summary b { color: var(--ink); }
-.bk-error { margin: 0; color: var(--danger); font-size: 14px; }
+.bk-error { margin: 12px 0 0; color: var(--danger); font-size: 14px; }
 .bk-error:empty { display: none; }
 .bk-btn {
   height: 50px; padding: 0 20px; border: 0; border-radius: 12px;
@@ -168,4 +205,7 @@ button, input, textarea { font: inherit; color: inherit; }
   .bk-card { padding: 4px 16px 18px; border-radius: 16px; }
   .bk-fields { grid-template-columns: 1fr; }
   .bk-day { border-radius: 8px; }
+  /* Téléphone : pas la place pour les noms sous la barre ; le nom de l'étape est dans le texte au-dessus */
+  .bk-progress button span { display: none; }
+  .bk-nav #backBtn { min-width: 90px; }
 }

@@ -31,28 +31,48 @@
     </section>
 
     <form id="bookingForm" class="bk-card" novalidate hidden>
-      <section class="bk-step" aria-labelledby="stepPeople">
-        <h2 id="stepPeople"><span class="bk-num">1</span>Combien serez-vous ?</h2>
+      <!-- Une étape à la fois ; la barre montre où on en est (les étapes faites sont cliquables) -->
+      <nav class="bk-progress" aria-label="Étapes de la réservation">
+        <p class="bk-progress-text" id="progressText" aria-live="polite"></p>
+        <ol id="progress">
+          <li><button type="button" data-goto="1"><i></i><span>Personnes</span></button></li>
+          <li><button type="button" data-goto="2"><i></i><span>Jour</span></button></li>
+          <li><button type="button" data-goto="3"><i></i><span>Heure</span></button></li>
+          <li><button type="button" data-goto="4"><i></i><span>Coordonnées</span></button></li>
+        </ol>
+      </nav>
+
+      <section class="bk-step" data-step="1" aria-labelledby="stepPeople">
+        <h2 id="stepPeople" tabindex="-1">Combien serez-vous ?</h2>
         <div class="bk-people">
           <button type="button" class="bk-round" id="peopleLess" aria-label="Une personne de moins">−</button>
-          <output id="peopleOut" aria-live="polite"><b id="peopleNum">2</b> <span id="peopleWord">personnes</span></output>
+          <!-- Pas un <output> : form.reset() remplacerait son contenu (et le compteur ne marcherait plus) -->
+          <span class="bk-people-count" id="peopleOut" aria-live="polite"><b id="peopleNum">2</b> <span id="peopleWord">personnes</span></span>
           <button type="button" class="bk-round" id="peopleMore" aria-label="Une personne de plus">+</button>
         </div>
         <p class="bk-hint" id="peopleHint"></p>
       </section>
 
-      <section class="bk-step" aria-labelledby="stepDate">
-        <h2 id="stepDate"><span class="bk-num">2</span>Quel jour ?</h2>
+      <section class="bk-step" data-step="2" aria-labelledby="stepDate" hidden>
+        <h2 id="stepDate" tabindex="-1">Quel jour ?</h2>
+        <p class="bk-recap" data-recap="2"></p>
         <div class="bk-cal" id="calendar"></div>
       </section>
 
-      <section class="bk-step" aria-labelledby="stepTime">
-        <h2 id="stepTime"><span class="bk-num">3</span>À quelle heure ?</h2>
+      <section class="bk-step" data-step="3" aria-labelledby="stepTime" hidden>
+        <h2 id="stepTime" tabindex="-1">À quelle heure ?</h2>
+        <p class="bk-recap" data-recap="3"></p>
         <div id="slots" class="bk-slots"><p class="bk-hint">Choisissez d'abord un jour.</p></div>
+        <!-- La table serait dans une zone qui demande l'accord du client (ex. l'étage, accès par un escalier) -->
+        <div class="bk-consent" id="consent" hidden>
+          <p id="consentText"></p>
+          <label class="bk-check-row"><input type="checkbox" id="consentBox" /><span id="consentLabel"></span></label>
+        </div>
       </section>
 
-      <section class="bk-step" aria-labelledby="stepContact">
-        <h2 id="stepContact"><span class="bk-num">4</span>Vos coordonnées</h2>
+      <section class="bk-step" data-step="4" aria-labelledby="stepContact" hidden>
+        <h2 id="stepContact" tabindex="-1">Vos coordonnées</h2>
+        <p class="bk-summary" id="summary"></p>
         <div class="bk-fields">
           <label class="bk-field bk-wide"><span>Nom</span>
             <input name="name" autocomplete="name" maxlength="60" required /></label>
@@ -67,10 +87,11 @@
         </div>
       </section>
 
-      <div class="bk-submit">
-        <p class="bk-summary" id="summary">Choisissez un jour et une heure.</p>
-        <p class="bk-error" id="error" role="alert"></p>
-        <button type="submit" class="bk-btn" id="submitBtn" disabled>Confirmer la réservation</button>
+      <p class="bk-error" id="error" role="alert"></p>
+      <div class="bk-nav">
+        <button type="button" class="bk-btn ghost" id="backBtn">Retour</button>
+        <button type="button" class="bk-btn" id="nextBtn">Continuer</button>
+        <button type="submit" class="bk-btn" id="submitBtn" hidden>Confirmer la réservation</button>
       </div>
     </form>
 
@@ -80,6 +101,7 @@
       </span>
       <h2>Réservation enregistrée</h2>
       <p id="doneText"></p>
+      <p class="bk-area-note" id="doneArea" hidden></p>
       <p class="bk-hint" id="doneHint">Un empêchement ? Prévenez-nous par téléphone pour libérer la table.</p>
       <button type="button" class="bk-btn ghost" id="again">Faire une autre réservation</button>
     </section>

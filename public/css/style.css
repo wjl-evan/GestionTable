@@ -556,7 +556,12 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
    la table mise en évidence reste bien visible derrière */
 @media (min-width: 701px) {
   dialog.detail { max-height: calc(100vh - 48px); overflow-y: auto; }
-  dialog.detail::backdrop { background: rgba(20, 20, 15, .12); backdrop-filter: none; }
+  dialog.detail::backdrop { background: rgba(20, 20, 15, .12); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+/* Plan fermé : rien à garder visible derrière, la liste est floutée pour mettre la fiche en avant */
+body.list-only dialog.detail::backdrop {
+  background: rgba(20, 20, 15, .28);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
 }
 .dt { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .dt-head { display: grid; grid-template-columns: 1fr auto auto; align-items: start; gap: 12px; }
@@ -614,12 +619,32 @@ dialog.detail { width: min(440px, calc(100vw - 24px)); }
 .group-box strong { font-size: 13px; }
 .group-row { align-items: center; justify-content: space-between; }
 .small-note { font-size: 12px; }
-/* Réservation faite par le client sur la page publique */
-.online-tag {
-  display: inline-block; margin-left: 6px; padding: 1px 6px; vertical-align: 2px;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .02em; border-radius: 999px;
-  background: var(--resv-soft); color: var(--resv);
+/* Zone de la réservation (Salle, Étage…), à gauche des tables sur la carte */
+.rc-tables { align-items: center; gap: 5px; }
+.area-tag {
+  flex: none; padding: 2px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink-2);
 }
+.area-tag.colored {
+  border-color: color-mix(in srgb, var(--zone-color) 50%, transparent);
+  background: color-mix(in srgb, var(--zone-color) 15%, transparent);
+  color: color-mix(in srgb, var(--zone-color) 70%, var(--ink));
+}
+
+/* Inspecteur : couleur d'une zone */
+.zone-colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.zone-color {
+  width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--surface); background: var(--zone-color); box-shadow: 0 0 0 1px var(--line-strong);
+}
+.zone-color.on { box-shadow: 0 0 0 2px var(--ink); }
+.zone-color.none { background: var(--surface-2); color: var(--muted); font-size: 13px; }
+.zone-color.custom {
+  position: relative; overflow: hidden;
+  background: conic-gradient(#ef4444, #f59e0b, #10b981, #3b82f6, #8b5cf6, #ec4899, #ef4444);
+}
+.zone-color.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
 /* Comptes de l'équipe (page Paramètres) */
 .account-me { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .account-me strong { font-size: 14px; }
@@ -796,6 +821,19 @@ body.editing .plan-wrap.pan-mode { cursor: grab; }
 .zone-wall, .swatch.zone-wall { border: 0; background: var(--ink-2); border-radius: 2px; }
 .zone-area, .swatch.zone-area { border: 1.5px dotted var(--line-strong); background: none; }
 .zone-area { place-items: start; }
+.zone-area > span { padding: 6px 8px; }
+.zone-area em { font-style: normal; color: var(--danger); text-transform: none; letter-spacing: 0; }
+/* Zone fermée à ce service : hachurée, ses tables grisées */
+.zone-area.closed {
+  background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 10%, transparent) 10px 12px);
+}
+.table.area-closed { opacity: .38; filter: grayscale(1); }
+.table.area-closed.busy { opacity: .8; } /* réservation placée à la main : on la voit quand même */
+
+
+/* Inspecteur : réglages d'une zone */
+.area-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+.area-services { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 
 body.editing .zone { pointer-events: auto; cursor: move; touch-action: none; }
 body.editing .zone:hover { box-shadow: 0 0 0 1.5px var(--line-strong); }
@@ -1176,6 +1214,132 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
 .toast.error { background: var(--danger); color: #fff; }
 .toast.out { opacity: 0; transform: translateY(6px); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---------- Barre d'outils de la liste, liste en lignes ----------
+ * body.toolbar : ordinateur / tablette (hors modification du plan). La barre du haut et la barre d'outils
+ *   de la liste sont les mêmes plan ouvert ou fermé : ouvrir le plan le fait apparaître à droite, la liste
+ *   passe dans une colonne à gauche (largeur réglable avec la poignée entre les deux).
+ * body.list-only : plan fermé, la liste prend toute la largeur.
+ * body.compact : une ligne par réservation (plan fermé, ou téléphone en « Compacte ») ; plan ouvert : cartes habituelles.
+ * Les lignes s'adaptent à la largeur de la liste (container queries), pas à celle de l'écran.
+ */
+
+.plan-toggle { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; white-space: nowrap; }
+.plan-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.rc-flags { display: none; }
+.list-new { display: none; }
+.list-resizer {
+  display: none; position: absolute; left: -6px; top: 0; bottom: 0; width: 12px; z-index: 30;
+  cursor: col-resize; touch-action: none; outline: none;
+}
+.list-resizer::after {
+  content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background .15s;
+}
+.list-resizer:hover::after, .list-resizer:focus-visible::after, .list-resizer.dragging::after { background: var(--accent); }
+body.resizing-list, body.resizing-list * { cursor: col-resize !important; user-select: none; }
+#resList { container: reslist / inline-size; }
+
+/* Barre du haut resserrée sur ordinateur et tablette (aussi en modification du plan : elle ne bouge jamais) */
+@media (min-width: 701px) {
+  body .topbar { padding-top: 5px; padding-bottom: 5px; gap: 10px; }
+  body .topbar .icon-btn { width: 34px; height: 34px; }
+  body .topbar .btn { height: 32px; }
+  body .date-nav .picker-btn { height: 34px; }
+  body .topbar .segmented button { min-height: 0; padding: 5px 14px; }
+  body .top-stats .stat strong { font-size: 15px; }
+}
+
+/* Barre d'outils de la liste : filtres, plan, recherche, Auto, ↺, Nouvelle — sur une seule ligne */
+@media (min-width: 701px) {
+  body.toolbar { --bar-h: 44px; --list-w: clamp(320px, 42vw, 460px); } /* la liste à gauche, le plan garde le reste */
+  body.toolbar #sidebar .panel-head {
+    flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px;
+    height: var(--bar-h); padding: 0 14px; border-bottom: 0;
+  }
+  body.toolbar .panel-head .filter-row { order: 1; flex: 1 1 380px; min-width: 0; align-items: center; }
+  body.toolbar .panel-head .search-row { order: 2; flex: 0 1 320px; min-width: 220px; }
+  body.toolbar .list-new { display: inline-flex; order: 3; flex: none; height: 32px; }
+  body.toolbar .plan-toggle { width: 152px; justify-content: center; } /* même largeur « Masquer » / « Afficher » : rien ne bouge */
+  body.toolbar .plan-new { display: none; } /* « Nouvelle » est dans la barre d'outils */
+  body.toolbar #sidebar { background: var(--bg); }
+  body.toolbar .res-list .time-group { background: var(--bg); }
+
+  /* Plan ouvert : barre d'outils sur toute la largeur, liste à gauche, plan à droite */
+  body.toolbar:not(.list-only) .layout { --list-col: max(300px, min(var(--list-w), calc(100vw - 320px))); grid-template-columns: var(--list-col) minmax(0, 1fr); grid-template-rows: var(--bar-h) minmax(0, 1fr); }
+  body.toolbar:not(.list-only) #sidebar {
+    grid-column: 1 / -1; grid-row: 1 / -1; display: grid; border-right: 0;
+    grid-template-columns: var(--list-col) minmax(0, 1fr); grid-template-rows: var(--bar-h) minmax(0, 1fr);
+  }
+  body.toolbar:not(.list-only) #sidebar .panel-head { grid-column: 1 / -1; grid-row: 1; }
+  body.toolbar:not(.list-only) #sidebar .res-list { grid-column: 1; grid-row: 2; border-right: 1px solid var(--line); }
+  body.toolbar:not(.list-only) .floor { grid-column: 2; grid-row: 2; z-index: 1; border-top: 1px solid var(--line); }
+  /* Poignée sur la ligne entre la liste et le plan : tirer pour changer la largeur de la liste */
+  body.toolbar:not(.list-only) .list-resizer { display: block; }
+
+  /* Plan fermé : la liste prend toute la largeur (centrée sur très grand écran) */
+  body.list-only .layout { grid-template-columns: minmax(0, 1fr); }
+  body.list-only .floor { display: none; }
+  body.list-only #sidebar { border-right: 0; }
+  body.list-only #sidebar .res-list { width: 100%; max-width: 1400px; margin-inline: auto; }
+}
+@media (max-width: 1199px) { .list-new-long { display: none; } } /* « Nouvelle » suffit quand la place manque */
+@media (min-width: 1200px) { body.toolbar .panel-head .search-row { flex-basis: 470px; } } /* recherche + Auto + Tout retirer */
+body.toolbar .search-row, body.compact .search-row { --search-h: 32px; gap: 6px; }
+body.toolbar .search input, body.compact .search input { font-size: 14px; }
+body.toolbar .search-clear, body.compact .search-clear { width: 26px; height: 26px; }
+body.toolbar .search-row > .btn.small, body.compact .search-row > .btn.small { padding: 0 10px; }
+body.toolbar .fchip, body.compact .fchip { height: 30px; padding: 0 11px; font-size: 12.5px; }
+body.toolbar .plan-toggle, body.compact .plan-toggle { height: 30px; }
+body.toolbar .time-strip, body.compact .time-strip { display: none; } /* les en-têtes d'heure de la liste suffisent */
+
+/* Lignes */
+body.compact .res-list { gap: 4px; padding-top: 4px; }
+body.compact .res-card { padding: 4px 8px 4px 12px; gap: 0; }
+body.compact .time-group { padding-top: 6px; padding-bottom: 4px; }
+body.compact .tg-time { font-size: 13px; }
+body.compact .rc-head {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-areas: 'status name flags tables people main';
+  row-gap: 0; column-gap: 12px;
+}
+body.compact .rc-sub { display: contents; }
+body.compact .rc-status { grid-area: status; width: 112px; overflow: hidden; } /* même largeur pour tous : les noms restent alignés */
+body.compact .rc-tables { grid-area: tables; justify-content: flex-end; }
+body.compact .rc-name { font-size: 15px; }
+body.compact .rc-people { font-size: 15px; min-width: 52px; justify-content: flex-end; }
+body.compact .rc-main { min-width: 92px; }
+body.compact .rc-main .rc-btn { height: 30px; }
+@media (pointer: coarse) { body.compact .rc-main .rc-btn { height: 34px; } } /* au doigt : encore assez grand pour viser */
+body.compact .rc-note { display: none; }
+/* Notes : icônes (texte complet au survol et dans la fiche) */
+body.compact .rc-flags { grid-area: flags; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rc-flag { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.rc-flag svg { flex: none; }
+.rc-flag.internal { color: #b7791f; }
+.rc-flag > span { display: none; }
+/* Liste assez large : le début des notes tient sur la ligne */
+@container reslist (min-width: 880px) {
+  body.compact .rc-head { grid-template-columns: auto minmax(160px, 0.9fr) minmax(0, 1.4fr) auto auto auto; }
+  body.compact .rc-flags { gap: 14px; }
+  body.compact .rc-flag { max-width: 50%; }
+  body.compact .rc-flag > span { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+/* Liste étroite (colonne à côté du plan, téléphone) : statut réduit à son point, action en icône */
+@container reslist (max-width: 600px) {
+  body.compact .rc-head { column-gap: 8px; }
+  body.compact .rc-status { width: auto; }
+  body.compact .rc-status-text { display: none; }
+  body.compact .rc-status .rc-undo { display: none; } /* « Annuler l'arrivée » reste dans la fiche */
+  body.compact .rc-main { min-width: 0; }
+  body.compact .rc-main .rc-btn { padding: 0 10px; position: relative; } /* garde le libellé masqué dans le bouton (sinon la page défile) */
+  body.compact .rc-main .rc-btn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  body.compact .rc-people small { display: none; }
+  body.compact .rc-people { min-width: 0; }
+}
+/* Très étroit (téléphone) : la zone reste dans la fiche */
+@container reslist (max-width: 400px) {
+  body.compact .rc-tables .area-tag { display: none; }
+}
 
 /* ---------- Tactile (tablette) ---------- */
 

@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 3000
+    },
+    {
+      "name": "gestion-table-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "process.env.PORT='3100';process.env.DB_PATH='C:/Users/likoy/AppData/Local/Temp/claude/C--Programmation-Projet-GestionTable/57bf1c0c-a9cb-426a-afbd-1e12db3bf969/scratchpad/preview-db/db.json';import('./server.js')"],
+      "port": 3100,
+      "autoPort": false
     }
   ]
 }

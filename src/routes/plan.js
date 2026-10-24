@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb, persist, httpError } from '../store.js';
 import { servicesPayload } from '../services.js';
+import { getServices } from '../../shared/rules.js';
 
 const router = Router();
 
@@ -39,6 +40,39 @@ function sanitizeZone(input, current = {}) {
   }
   for (const k of ['x', 'y']) {
     if (input[k] !== undefined) z[k] = Math.round(Number(input[k]) || 0);
+  }
+  // Zone (salle, étage, terrasse…) : description pour les clients et horaires d'ouverture
+  if (z.type === 'area') {
+    if (input.description !== undefined) z.description = String(input.description).trim().slice(0, 300);
+    // En dernier recours (ex. l'étage) ; accord du client en ligne demandé ; étiquette masquée dans la liste
+    for (const k of ['overflow', 'confirm', 'hideTag']) {
+      if (input[k] === undefined) continue;
+      if (input[k]) z[k] = true;
+      else delete z[k];
+    }
+    // Couleur de la zone (#rrggbb) ; vide ou invalide = pas de couleur
+    if (input.color !== undefined) {
+      if (/^#[0-9a-f]{6}$/i.test(String(input.color))) z.color = String(input.color).toLowerCase();
+      else delete z.color;
+    }
+    if (input.days !== undefined) {
+      // null = tous les jours ; sinon la liste des jours d'ouverture (0 = lundi)
+      z.days = input.days === null ? undefined : [...new Set((Array.isArray(input.days) ? input.days : []).map(Number))].filter((d) => d >= 0 && d <= 6).sort();
+      if (!z.days) delete z.days;
+    }
+    if (input.services !== undefined) {
+      const known = new Set(getServices().map((s) => s.id));
+      z.services = [...new Set(Array.isArray(input.services) ? input.services : [])].filter((id) => known.has(id));
+      if (!z.services.length) delete z.services; // vide = tous les services
+    }
+  } else {
+    delete z.description;
+    delete z.days;
+    delete z.services;
+    delete z.overflow;
+    delete z.confirm;
+    delete z.hideTag;
+    delete z.color;
   }
   return fitInRoom(z, room);
 }

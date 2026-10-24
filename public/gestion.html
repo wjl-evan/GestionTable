@@ -86,7 +86,17 @@
         </div>
         <div class="filter-row">
           <div class="filter-chips" id="filters" role="tablist" aria-label="Filtrer les réservations"></div>
+          <!-- Fermer le plan : la liste prend toute la place, une ligne par réservation -->
+          <button type="button" class="btn ghost small plan-toggle" id="planToggle" aria-pressed="false">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg>
+            <span id="planToggleLabel">Masquer le plan</span>
+          </button>
         </div>
+        <!-- Plan fermé (ordinateur, tablette) : « Nouvelle réservation » est ici, au bout de la ligne -->
+        <button type="button" class="btn primary small list-new" id="listNewRes" title="Nouvelle réservation">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Nouvelle<span class="list-new-long"> réservation</span></span>
+        </button>
       </div>
       <div class="time-strip" id="timeStrip" aria-label="Aller à un créneau"></div>
       <ul class="res-list" id="resList"></ul>
@@ -96,6 +106,9 @@
     <aside class="panel" id="inspector" hidden></aside>
 
     <section class="floor">
+      <!-- Poignée entre la liste et le plan : tirer pour élargir / rétrécir la liste (double-clic : taille par défaut) -->
+      <div class="list-resizer" id="listResizer" role="separator" aria-orientation="vertical" aria-label="Largeur de la liste"
+        tabindex="0" title="Tirer pour changer la largeur de la liste · double-clic : taille par défaut"></div>
       <!-- Tablette : « Nouvelle réservation » en haut à gauche du plan -->
       <button type="button" class="btn primary plan-new" id="planNewRes">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>

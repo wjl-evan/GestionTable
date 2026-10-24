@@ -66,6 +66,60 @@ export function isServiceOpen(date, id, exceptions = {}) {
 /** Services ouverts une date donnée, dans l'ordre de la journée. */
 export const openServices = (date, exceptions = {}) => services.filter((s) => isServiceOpen(date, s.id, exceptions));
 
+/* ---------- Zones (salle, étage, terrasse…) ----------
+ * Une zone = un élément du plan de type « area » : { id, label, x, y, w, h, description,
+ * days: [0..6] (jours d'ouverture, absent = tous), services: [ids] (absent ou vide = tous),
+ * overflow: true (servie seulement quand les autres zones sont pleines, ex. l'étage),
+ * confirm: true (un client en ligne doit accepter cette zone avant de réserver) }.
+ * Une table appartient à la zone qui contient son centre (la plus petite si elles s'emboîtent).
+ * Les tables d'une zone fermée ne sont pas proposées par le placement automatique.
+ */
+export const areasOf = (zones = []) => zones.filter((z) => z.type === 'area');
+
+const contains = (z, p) => p.x >= z.x && p.x <= z.x + z.w && p.y >= z.y && p.y <= z.y + z.h;
+
+export function areaOfTable(t, zones = []) {
+  const c = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
+  return areasOf(zones).filter((z) => contains(z, c)).sort((a, b) => a.w * a.h - b.w * b.h)[0] ?? null;
+}
+
+/** Élément du plan (bar, mur…) ou table dans la zone : son centre est dedans. */
+export const inArea = (item, area) => contains(area, { x: item.x + item.w / 2, y: item.y + item.h / 2 });
+
+export function isAreaOpen(area, date, serviceId) {
+  if (Array.isArray(area.days) && !area.days.includes(weekdayOf(date))) return false;
+  if (Array.isArray(area.services) && area.services.length && !area.services.includes(serviceId)) return false;
+  return true;
+}
+
+/** Tables des zones fermées ce jour-là, pour ce service. */
+export function closedTableIds(tables, zones, date, serviceId) {
+  const closed = areasOf(zones).filter((a) => !isAreaOpen(a, date, serviceId));
+  if (!closed.length) return new Set();
+  return new Set(tables.filter((t) => closed.includes(areaOfTable(t, zones))).map((t) => t.id));
+}
+
+/** Tables des zones « en dernier recours » (ex. l'étage : seulement s'il n'y a plus de place en bas). */
+export function overflowTableIds(tables, zones) {
+  const overflow = areasOf(zones).filter((a) => a.overflow);
+  if (!overflow.length) return new Set();
+  return new Set(tables.filter((t) => overflow.includes(areaOfTable(t, zones))).map((t) => t.id));
+}
+
+/**
+ * Comme autoAssign, mais les zones « en dernier recours » ne servent qu'aux réservations
+ * qui ne trouvent pas de place ailleurs.
+ */
+export function autoAssignByPriority(tables, zones, reservations, busy = new Set(), groups = []) {
+  const overflow = overflowTableIds(tables, zones);
+  if (!overflow.size) return autoAssign(tables, reservations, busy, groups);
+  const first = autoAssign(tables, reservations, new Set([...busy, ...overflow]), groups);
+  const rest = reservations.filter((r) => !first.has(r.id));
+  if (!rest.length) return first;
+  const used = new Set([...busy, ...[...first.values()].flat()]);
+  return new Map([...first, ...autoAssign(tables, rest, used, groups)]);
+}
+
 export function localDate(d = new Date()) {
   const z = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;

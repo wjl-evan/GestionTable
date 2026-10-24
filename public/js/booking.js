@@ -1,4 +1,5 @@
 // Page publique : le client choisit personnes → jour → créneau, puis laisse ses coordonnées.
+// Une étape à la fois, avec une barre de progression ; on peut revenir aux étapes déjà faites.
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -10,6 +11,7 @@ const state = {
   time: null,
   month: null, // 'AAAA-MM' affiché dans le calendrier
   services: [], // créneaux du jour choisi
+  step: 1, // étape affichée (1 personnes, 2 jour, 3 heure, 4 coordonnées)
 };
 
 async function getJson(url, options) {
@@ -105,6 +107,7 @@ $('#calendar').addEventListener('click', (e) => {
   state.date = day.dataset.date;
   renderCalendar();
   loadSlots();
+  goTo(3);
 });
 
 /* ---------- 3. Créneaux ---------- */
@@ -126,8 +129,32 @@ async function loadSlots() {
   const still = state.services.some((s) => s.slots.some((sl) => sl.time === state.time && sl.available));
   if (!still) state.time = null;
   renderSlots();
+  renderConsent();
   renderSummary();
+  renderSteps();
 }
+
+/** Zone qui demande l'accord du client pour le créneau choisi (ex. l'étage), ou null. */
+const noticeOf = () => (state.time ? state.services.find((s) => s.slots.some((sl) => sl.time === state.time))?.notice ?? null : null);
+
+/** Avertissement + case à cocher : le client accepte la zone avant de pouvoir réserver. */
+function renderConsent() {
+  const notice = noticeOf();
+  const box = $('#consentBox');
+  if (!notice || box.dataset.area !== notice.id) box.checked = false; // nouvelle zone : nouvel accord
+  box.dataset.area = notice?.id ?? '';
+  $('#consent').hidden = !notice;
+  if (!notice) return;
+  $('#consentText').innerHTML =
+    `Pour ce service, il ne reste de la place que dans la zone <b>${esc(notice.label)}</b>.` +
+    (notice.description ? `<br /><b>${esc(notice.description)}</b>` : '');
+  $('#consentLabel').textContent = `J'accepte une table dans la zone « ${notice.label} »`;
+}
+$('#consentBox').addEventListener('change', () => {
+  $('#error').textContent = '';
+  renderSummary();
+  renderSteps();
+});
 
 function renderSlots() {
   if (!state.services.length) {
@@ -153,18 +180,78 @@ $('#slots').addEventListener('click', (e) => {
   if (!slot || slot.disabled) return;
   state.time = slot.dataset.time;
   renderSlots();
+  renderConsent();
   renderSummary();
   $('#error').textContent = '';
+  if (noticeOf()) {
+    renderSteps();
+    $('#consent').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  } else goTo(4);
+});
+
+/* ---------- Étapes et barre de progression ---------- */
+
+const STEPS = 4;
+const STEP_NAMES = ['Personnes', 'Jour', 'Heure', 'Coordonnées'];
+const peopleText = () => `${state.people} personne${state.people > 1 ? 's' : ''}`;
+const consentOk = () => !noticeOf() || $('#consentBox').checked;
+
+/** Dernière étape accessible : on ne saute pas une étape pas encore faite. */
+function reachable() {
+  if (!state.date) return 2;
+  if (!state.time || !consentOk()) return 3;
+  return 4;
+}
+
+function goTo(step) {
+  state.step = Math.max(1, Math.min(step, reachable()));
+  $('#error').textContent = '';
+  renderSteps();
+  // Nouvelle étape : en haut du formulaire, titre annoncé aux lecteurs d'écran
+  form.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  form.querySelector(`.bk-step[data-step="${state.step}"] h2`)?.focus({ preventScroll: true });
+  if (state.step === 4) setTimeout(() => form.name.focus({ preventScroll: true }), 300);
+}
+
+function renderSteps() {
+  const { step } = state;
+  for (const section of form.querySelectorAll('.bk-step')) section.hidden = Number(section.dataset.step) !== step;
+  const max = reachable();
+  form.querySelectorAll('#progress li').forEach((li, i) => {
+    const n = i + 1;
+    li.className = n < step ? 'done' : n === step ? 'current' : n <= max ? 'reachable' : '';
+    const btn = li.querySelector('button');
+    btn.disabled = n === step || n > max;
+    btn.setAttribute('aria-current', n === step ? 'step' : 'false');
+  });
+  $('#progressText').textContent = `Étape ${step} sur ${STEPS} · ${STEP_NAMES[step - 1]}`;
+  // Rappel de ce qui est déjà choisi
+  form.querySelector('[data-recap="2"]').innerHTML = `Pour <b>${peopleText()}</b>`;
+  form.querySelector('[data-recap="3"]').innerHTML = state.date ? `<b>${peopleText()}</b> · <b>${esc(longDate(state.date))}</b>` : '';
+  $('#backBtn').hidden = step === 1;
+  $('#nextBtn').hidden = step === STEPS;
+  $('#nextBtn').disabled = step >= max;
+  $('#nextBtn').textContent = step === 3 && noticeOf() && !consentOk() ? 'Acceptez la zone pour continuer' : 'Continuer';
+  $('#submitBtn').hidden = step !== STEPS;
+}
+
+$('#backBtn').addEventListener('click', () => goTo(state.step - 1));
+$('#nextBtn').addEventListener('click', () => goTo(state.step + 1));
+$('#progress').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-goto]');
+  if (b && !b.disabled) goTo(Number(b.dataset.goto));
 });
 
 /* ---------- 4. Coordonnées et envoi ---------- */
 
 function renderSummary() {
   const ready = Boolean(state.date && state.time);
+  const notice = noticeOf();
+  const agreed = !notice || $('#consentBox').checked;
   $('#summary').innerHTML = ready
-    ? `Table pour <b>${state.people} personne${state.people > 1 ? 's' : ''}</b>, le <b>${esc(longDate(state.date))}</b> à <b>${frTime(state.time)}</b>.`
-    : state.date ? 'Choisissez une heure.' : 'Choisissez un jour et une heure.';
-  $('#submitBtn').disabled = !ready;
+    ? `Table pour <b>${state.people} personne${state.people > 1 ? 's' : ''}</b>, le <b>${esc(longDate(state.date))}</b> à <b>${frTime(state.time)}</b>${notice ? ` — zone ${esc(notice.label)}` : ''}.`
+    : '';
+  $('#submitBtn').disabled = !ready || !agreed;
 }
 
 /** Vérifie les champs avant l'envoi ; renvoie le premier message d'erreur, ou ''. */
@@ -193,7 +280,10 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const error = $('#error');
   error.textContent = '';
+  if (state.step !== STEPS) return goTo(state.step + 1); // « Entrée » dans un champ : étape suivante
   if (!state.date || !state.time) return (error.textContent = 'Choisissez un jour et une heure.');
+  const notice = noticeOf();
+  if (notice && !$('#consentBox').checked) return (error.textContent = `Cochez la case pour accepter une table dans la zone « ${notice.label} ».`);
   const invalid = checkContact();
   if (invalid) return (error.textContent = invalid);
   const btn = $('#submitBtn');
@@ -211,19 +301,28 @@ form.addEventListener('submit', async (e) => {
         email: form.email.value,
         phone: form.phone.value,
         notes: form.notes.value,
+        acceptArea: notice && $('#consentBox').checked ? notice.id : undefined,
         website: form.website.value,
       }),
     });
     $('#doneText').innerHTML = data.date
       ? `Merci ${esc(data.name)} ! Votre table pour <b>${data.people} personne${data.people > 1 ? 's' : ''}</b> est réservée le <b>${esc(longDate(data.date))}</b> à <b>${frTime(data.time)}</b>.`
       : 'Merci ! Votre réservation est enregistrée.';
+    // Zone acceptée par le client : on la rappelle (ex. « à l'étage, accès par un escalier »)
+    $('#doneArea').hidden = !data.area;
+    if (data.area) {
+      $('#doneArea').innerHTML = `Votre table : <b>${esc(data.area.label)}</b>${data.area.description ? ` — ${esc(data.area.description)}` : ''}`;
+    }
     form.hidden = true;
     $('#done').hidden = false;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
+    // Créneau pris entre-temps, ou il ne reste plus que l'étage : retour aux horaires (et à l'avertissement)
+    if (['full', 'slot', 'area_confirm'].includes(err.reason)) {
+      await loadSlots();
+      goTo(3);
+    }
     error.textContent = err.message;
-    // Créneau pris entre-temps : on rafraîchit les horaires
-    if (err.reason === 'full' || err.reason === 'slot') loadSlots();
   } finally {
     btn.textContent = 'Confirmer la réservation';
     renderSummary();
@@ -232,12 +331,15 @@ form.addEventListener('submit', async (e) => {
 
 $('#again').addEventListener('click', () => {
   form.reset();
-  Object.assign(state, { date: null, time: null, services: [] });
+  Object.assign(state, { people: 2, date: null, time: null, services: [] });
+  renderPeople();
+  renderConsent();
   $('#slots').innerHTML = '<p class="bk-hint">Choisissez d\'abord un jour.</p>';
   renderCalendar();
   renderSummary();
   $('#done').hidden = true;
   form.hidden = false;
+  goTo(1);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -282,4 +384,5 @@ function applyInfo() {
   renderPeople();
   renderCalendar();
   renderSummary();
+  renderSteps();
 }

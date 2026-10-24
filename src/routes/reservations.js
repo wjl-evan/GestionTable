@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { getDb, persist, httpError } from '../store.js';
 import { archivedBetween, archivedReservations } from '../retention.js';
-import { autoAssign, capacityOf, findCombination, getServices, isActive, isCancelled, isServiceOpen, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
+import { areaOfTable, autoAssignByPriority, capacityOf, closedTableIds, findCombination, getServices, isActive, isCancelled, isServiceOpen, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
 import { assertServiceOpen, assertWithinHours, serviceExceptions, serviceName, setServiceDay } from '../services.js';
 
 const router = Router();
@@ -69,8 +69,11 @@ function findReservation(id) {
   return r;
 }
 
+/** Tables des zones fermées à ce service (étage le week-end seulement…). */
+const closedTables = (date, service) => closedTableIds(getDb().tables, getDb().zones, date, service);
+
 /** Tables occupées par les autres réservations du même service (les clients partis les ont libérées). */
-export function busyTables(reservation) {
+function occupiedTables(reservation) {
   const service = serviceOf(reservation.time);
   return new Set(
     getDb()
@@ -80,6 +83,14 @@ export function busyTables(reservation) {
       )
       .flatMap((r) => r.tableIds)
   );
+}
+
+/**
+ * Tables indisponibles pour le placement automatique : occupées, ou dans une zone fermée ce jour-là.
+ * (Choisies à la main, les tables d'une zone fermée restent possibles.)
+ */
+export function busyTables(reservation) {
+  return new Set([...occupiedTables(reservation), ...closedTables(reservation.date, serviceOf(reservation.time))]);
 }
 
 /**
@@ -104,7 +115,7 @@ function assertNotPinned(reservation) {
 export function autoPlace(reservation) {
   if (reservation.tableIds.length || !isActive(reservation)) return false;
   const db = getDb();
-  const placement = autoAssign(db.tables, [reservation], busyTables(reservation), db.groups).get(reservation.id);
+  const placement = autoAssignByPriority(db.tables, db.zones, [reservation], busyTables(reservation), db.groups).get(reservation.id);
   if (placement) setTables(reservation, placement);
   return Boolean(placement);
 }
@@ -213,7 +224,7 @@ function assertDisplaceable(reservation, tableIds, allowDisplace) {
       .filter((o) => !moving.has(o.id) && o.date === reservation.date && serviceOf(o.time) === service && isActive(o))
       .flatMap((o) => o.tableIds),
   ]);
-  const placed = autoAssign(db.tables, occupants, busy, db.groups);
+  const placed = autoAssignByPriority(db.tables, db.zones, occupants, busy, db.groups);
   const stranded = occupants.filter((o) => !placed.has(o.id));
   if (!stranded.length) return;
   const who = stranded.map((o) => `${o.name} (${o.people} pers., ${tableNamesOf(o.tableIds)})`).join(', ');
@@ -328,7 +339,7 @@ router.post('/', async (req, res) => {
   // Aucune table libre : on n'enregistre pas, sauf si on a choisi de la prendre quand même (« à placer »)
   if (!chosen.length && !req.body.allowUnplaced) {
     const db = getDb();
-    const placement = autoAssign(db.tables, [r], busyTables(r), db.groups).get(r.id);
+    const placement = autoAssignByPriority(db.tables, db.zones, [r], busyTables(r), db.groups).get(r.id);
     if (!placement) {
       throw httpError(
         409,
@@ -431,6 +442,10 @@ router.post('/:id/assign', async (req, res) => {
   assertUsable(reservation);
 
   const busy = busyTables(reservation);
+  if (closedTables(reservation.date, serviceOf(reservation.time)).has(table.id)) {
+    const area = areaOfTable(table, db.zones);
+    throw httpError(409, `${table.name} est dans la zone « ${area.label} », fermée à ce service. Choisissez une autre table, ou ses tables à la main (« Sur le plan »).`);
+  }
   if (busy.has(table.id)) throw httpError(409, `${table.name} est déjà occupée sur ce service.`);
 
   const combo = findCombination(db.tables, table.id, reservation.people, busy, db.groups);
@@ -462,7 +477,7 @@ router.post('/:id/assign-manual', async (req, res) => {
   const tables = tableIds.map((id) => db.tables.find((t) => t.id === id));
   if (tables.some((t) => !t)) throw httpError(404, 'Table introuvable');
 
-  const busy = busyTables(reservation);
+  const busy = occupiedTables(reservation);
   const taken = tables.filter((t) => busy.has(t.id)).map((t) => t.name);
   if (taken.length) throw httpError(409, `${taken.join(', ')} ${taken.length > 1 ? 'sont déjà occupées' : 'est déjà occupée'} sur ce service.`);
 
@@ -479,10 +494,10 @@ router.post('/auto-assign', async (req, res) => {
 
   const db = getDb();
   const sameService = db.reservations.filter((r) => r.date === date && serviceOf(r.time) === service);
-  const busy = new Set(sameService.filter(isActive).flatMap((r) => r.tableIds));
+  const busy = new Set([...sameService.filter(isActive).flatMap((r) => r.tableIds), ...closedTables(date, service)]);
   const pending = sameService.filter((r) => !r.tableIds.length && isActive(r));
 
-  const placements = autoAssign(db.tables, pending, busy, db.groups);
+  const placements = autoAssignByPriority(db.tables, db.zones, pending, busy, db.groups);
   for (const r of pending) {
     if (placements.has(r.id)) setTables(r, placements.get(r.id));
   }
@@ -509,7 +524,7 @@ router.post('/:id/status', async (req, res) => {
 
   let conflict = false;
   if (!isActive(reservation) && status !== 'left' && reservation.tableIds.length) {
-    const busy = busyTables(reservation);
+    const busy = occupiedTables(reservation);
     if (reservation.tableIds.some((id) => busy.has(id))) {
       setTables(reservation, []);
       conflict = true;

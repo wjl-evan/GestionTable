@@ -35,12 +35,12 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 - **Paramètres** (menu ☰ sur ordinateur et tablette, « Plus » sur téléphone) : une page à part, avec un onglet par
   sujet : *Services*, *Réservation en ligne*, *Données des clients*, *Mon compte* (mot de passe, déconnexion) et, pour les administrateurs,
   *Comptes de l'équipe*. « Retour » (ou Échap) ramène au plan. « Modifier le plan » ne sert plus qu'à dessiner la salle.
-- **Réservation en ligne** (page publique, adresse de base `/`, sans compte) : le client choisit le nombre de
+- **Réservation en ligne** (page publique, adresse de base `/`, sans compte), en 4 étapes affichées une à une avec une barre de progression (Retour / Continuer ; les étapes faites restent cliquables) : le client choisit le nombre de
   personnes, un jour (ni passé, ni trop lointain, ni fermé : barré dans le calendrier), puis un créneau parmi les
   services ouverts ce jour-là (ex. Midi 12:00 → 13:30 : 12:00, 12:15… 13:30). Il ne choisit pas de table : une table
   libre est attribuée automatiquement ; s'il n'y en a plus pour son groupe, le service est affiché « Complet ». La
-  demande particulière est facultative. La réservation apparaît aussitôt chez l'équipe, avec l'étiquette « En ligne » ;
-  l'historique indique « Réservation en ligne ». Anti-abus : 5 réservations par heure et par adresse, piège à robots.
+  demande particulière est facultative. La réservation apparaît aussitôt chez l'équipe ; l'historique indique
+  « Réservation en ligne ». Anti-abus : 5 réservations par heure et par adresse, piège à robots.
   **Réglages** (*Paramètres* → *Réservation en ligne*) :
   - ouverte ou fermée (avec un message pour les clients quand elle est fermée) ;
   - nom et téléphone du restaurant, informations affichées en haut de la page ;
@@ -76,6 +76,14 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   boutons toujours visibles : Arrivé / Libérer / Rétablir, Note, Modifier, Retirer (↶ pour annuler une
   arrivée). Les clients déjà installés sont atténués, les partis encore plus ; un client arrivé sans table
   reste bien visible avec « À placer » en rouge.
+- **Liste et plan** (ordinateur, tablette) : la barre du haut et la barre d'outils de la liste (filtres, plan,
+  recherche, Auto, ↺, Nouvelle) sont sur une ligne et ne bougent jamais. « Masquer le plan » : la liste prend toute la
+  largeur et chaque réservation tient sur **une ligne** (statut, nom, notes — leur début si la place le permet, une
+  icône sinon —, zone, tables, personnes, action). « Afficher le plan » : le plan s'ouvre à droite, la liste passe dans
+  une colonne à gauche avec les cartes détaillées. La **ligne entre les deux se tire** pour élargir / rétrécir la liste
+  (flèches du clavier aussi ; double-clic : taille par défaut) ; le plan garde au moins 320 px. Sur téléphone,
+  « Compacte » passe la liste en lignes. Placer une réservation rouvre le plan le temps du placement, puis il se
+  referme. Choix et largeur gardés sur l'appareil.
 - **Recherche** : par nom (sans tenir compte des accents), par nombre de personnes (« 4 », « 4 pers ») ou par
   numéro de téléphone ; si rien n'est trouvé, la liste propose le résultat de l'autre service.
 - **Note interne** : visible uniquement par l'équipe (en jaune), modifiable depuis la carte (« Note ») ou
@@ -143,6 +151,21 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   d'une table. Une fusion s'utilise **en entier** : pour autoriser une partie de ses tables (ex. T72 + T73
   dans T71 + T72 + T73), créez aussi cette fusion-là. Régler la capacité de deux voisines
   automatiques crée une fusion à 2. Les anciens « liens » sont convertis automatiquement en fusions.
+- **Zones** (salle, étage, terrasse…) : dans « Modifier le plan », ajouter un élément *Zone* et l'étirer autour de
+  ses tables. Chaque table appartient à la zone qui contient son centre. Une zone sélectionnée a :
+  - **En dernier recours** (ex. l'étage) : « Auto », la création d'une réservation et la réservation en ligne
+    remplissent d'abord les autres zones ; celle-ci ne sert que s'il n'y a plus de place ailleurs ;
+  - **Accord du client en ligne** : si la table d'un client tombe dans cette zone, la page publique l'avertit avant
+    qu'il réserve (avec la **description**, ex. « À l'étage : accès par un escalier ») et il doit cocher qu'il accepte ;
+    sans cet accord, la réservation est refusée. La fiche indique « acceptée par le client » ;
+  - une **couleur** (8 au choix, ou « Autre couleur… ») : étiquette de zone sur les cartes des réservations (la zone
+    elle-même reste neutre sur le plan) ;
+  - **Ne pas afficher la zone sur les cartes de la liste** (ex. la salle principale : seul « Étage » est alors signalé) ;
+    la zone reste indiquée dans la fiche de la réservation ;
+  - des **jours d'ouverture** (ex. V S D) et, au choix, certains **services** seulement. Fermée : hachurée sur le plan,
+    tables grisées, jamais proposées automatiquement ; déposer une réservation dessus est refusé avec la raison, mais on
+    peut toujours choisir ses tables à la main (« Sur le plan »).
+  Sur chaque carte de réservation placée, le nom de sa zone est affiché à gauche de ses tables.
 - **Zoom** à la molette (centré sur le curseur) ou avec les boutons en bas à droite ; glisser le fond du plan pour se déplacer.
 
 ## Structure
@@ -184,12 +207,12 @@ changements aux appareils connectés.
 | Méthode | Route | Description |
 | --- | --- | --- |
 | GET | `/api/public/info` | Page publique : limites (personnes, jours à l'avance) et jours ouverts |
-| GET | `/api/public/availability?date=&people=` | Page publique : créneaux de 15 min par service ouvert, `full` si plus de table |
-| POST | `/api/public/reservations` | Page publique : `{ name, email, phone, people, date, time, notes }` (table attribuée automatiquement) |
+| GET | `/api/public/availability?date=&people=` | Page publique : créneaux par service ouvert, `full` si plus de table, `notice` si la table serait dans une zone à accepter |
+| POST | `/api/public/reservations` | Page publique : `{ name, email, phone, people, date, time, notes, acceptArea }` (table attribuée automatiquement ; `acceptArea` = id de la zone acceptée) |
 | GET | `/api/plan` | Salle, zones et tables |
 | PUT | `/api/plan/room` | `{ w, h }` — dimensions de la salle |
 | DELETE | `/api/plan` | Plan vierge (supprime tables et éléments) |
-| POST / PUT / DELETE | `/api/plan/zones[/:id]` | Éléments : bar, entrée, mur, fenêtre… |
+| POST / PUT / DELETE | `/api/plan/zones[/:id]` | Éléments : bar, entrée, mur, fenêtre… ; zone (`type: 'area'`) avec `description`, `color` (#rrggbb), `days` (0 = lundi, `null` = tous), `services` (vide = tous), `overflow` (dernier recours), `confirm` (accord du client en ligne) |
 | POST | `/api/plan/groups` | `{ tableIds, capacity }` — crée une fusion (ou met à jour sa capacité) |
 | PUT / DELETE | `/api/plan/groups/:id` | Modifie la capacité / supprime la fusion |
 | POST / PUT / DELETE | `/api/tables[/:id]` | Gestion des tables |
