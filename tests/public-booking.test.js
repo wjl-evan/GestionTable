@@ -181,9 +181,14 @@ test('couverts par créneau : l’heure pleine n’est plus proposée', async ()
   await asStaff('PUT', '/api/settings/booking', { maxCoversPerSlot: 0 });
 });
 
-test('délai minimum : les créneaux trop proches ne sont pas proposés', async () => {
+test('délai minimum : les créneaux trop proches restent affichés mais grisés, et sont refusés', async () => {
   await asStaff('PUT', '/api/settings/booking', { minNoticeMinutes: 7 * 24 * 60 });
-  assert.deepEqual(await slotsOn(DATE2), []); // J+5 : moins de 7 jours
+  const slots = (await slotsOn(DATE2))[0].slots; // J+5 : moins de 7 jours
+  assert.ok(slots.length > 0);
+  assert.ok(slots.every((s) => s.tooSoon && !s.available));
+  const res = await book({ name: 'Trop tôt', date: DATE2, time: '13:00' });
+  assert.equal(res.status, 409);
+  assert.match(res.data.error, /trop proche.*7 jours/);
   await asStaff('PUT', '/api/settings/booking', { minNoticeMinutes: 60 });
 });
 

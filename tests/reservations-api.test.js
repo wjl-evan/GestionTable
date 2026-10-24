@@ -22,7 +22,8 @@ const DB = {
   zones: [],
   tables: [table('t1', 'T1', 2, 40), table('t2', 'T2', 4, 400), table('t3', 'T3', 4, 800)],
   groups: [],
-  reservations: [],
+  // Réservation déjà passée (pour vérifier qu'on peut encore la corriger, sans la déplacer dans le passé)
+  reservations: [{ id: 'old', name: 'Ancien', people: 2, date: new Date(Date.now() - 2 * 86400000).toLocaleDateString('sv'), time: '20:00', phone: '', notes: '', internalNote: '', tableIds: [], status: 'left' }],
   settings: { lastRetention: '2999-01-01' },
 };
 
@@ -272,4 +273,64 @@ test('modifier : changer de table, puis libérer la fixation', async () => {
   const { data: unpinned } = await api('PUT', `/reservations/${gina.id}`, { tables: 'T1', pinned: false });
   assert.equal(unpinned.pinned, undefined);
   assert.equal(names(unpinned.tableIds), 'T1');
+});
+
+test('pas de réservation dans le passé (date ou heure passée) ; corriger une réservation passée reste possible', async () => {
+  const yesterday = new Date(Date.now() - 86400000);
+  const z = (n) => String(n).padStart(2, '0');
+  const past = `${yesterday.getFullYear()}-${z(yesterday.getMonth() + 1)}-${z(yesterday.getDate())}`;
+  const created = await book('Passé', { date: past, allowClosed: true, allowLate: true, allowUnplaced: true });
+  assert.equal(created.status, 400);
+  assert.equal(created.data.reason, 'past');
+  const future = (await book('Futur', { allowUnplaced: true })).data;
+  const moved = await api('PUT', `/reservations/${future.id}`, { date: past });
+  assert.equal(moved.status, 400);
+  assert.equal(moved.data.reason, 'past');
+  assert.equal((await api('PUT', '/reservations/old', { name: 'Ancien client' })).status, 200);
+});
+
+test('déposer sur une table occupée : confirmation, puis l’autre réservation est déplacée (ou « à placer »)', async () => {
+  const D = '2030-06-20';
+  const anna = (await book('Anna', { date: D, people: 4, tables: 'T2' })).data;
+  const ben = (await book('Ben', { date: D, people: 4, allowUnplaced: true, tables: 'T3' })).data;
+  const carl = (await book('Carl', { date: D, people: 4, allowUnplaced: true })).data;
+  assert.deepEqual(carl.tableIds, []); // T2 et T3 prises, T1 trop petite
+
+  // 1. Sans confirmation : refusé, avec ce qui arrivera à Anna
+  await api('POST', `/reservations/${ben.id}/unassign`);
+  const ask = await api('POST', `/reservations/${ben.id}/assign`, { tableId: 't2' });
+  assert.equal(ask.status, 409);
+  assert.equal(ask.data.reason, 'occupied');
+  assert.match(ask.data.error, /T2 est occupée par Anna[\s\S]*Anna \(4 pers\.\) sera déplacé·e en T3/);
+  // 2. Confirmé : Ben prend T2, Anna part en T3
+  const ok = await api('POST', `/reservations/${ben.id}/assign`, { tableId: 't2', allowDisplace: true });
+  assert.equal(ok.status, 200);
+  assert.equal(names(ok.data.reservation.tableIds), 'T2');
+  let list = (await api('GET', `/reservations?date=${D}`)).data;
+  assert.equal(names(list.find((r) => r.name === 'Anna').tableIds), 'T3');
+
+  // 3. Plus aucune table libre pour la réservation délogée : on prévient, puis elle passe « à placer »
+  const ask2 = await api('POST', `/reservations/${carl.id}/assign`, { tableId: 't3' });
+  assert.match(ask2.data.error, /Aucune autre table libre n'a été trouvée pour Anna/);
+  await api('POST', `/reservations/${carl.id}/assign`, { tableId: 't3', allowDisplace: true });
+  list = (await api('GET', `/reservations?date=${D}`)).data;
+  assert.equal(names(list.find((r) => r.name === 'Carl').tableIds), 'T3');
+  assert.deepEqual(list.find((r) => r.name === 'Anna').tableIds, []);
+
+  // 4. Réservation fixée : on ne la déloge pas
+  await api('POST', `/reservations/${carl.id}/pin`, { pinned: true });
+  const pinned = await api('POST', `/reservations/${anna.id}/assign`, { tableId: 't3', allowDisplace: true });
+  assert.equal(pinned.status, 409);
+  assert.match(pinned.data.error, /fixé/);
+});
+
+test('clients sans réservation : créés à la table choisie, déjà arrivés', async () => {
+  const D = '2030-06-21';
+  const { status, data } = await book('Sans réservation', { date: D, people: 3, tables: 'T2', arrived: true, allowTight: true, allowLate: true, allowClosed: true });
+  assert.equal(status, 201);
+  assert.equal(names(data.tableIds), 'T2');
+  assert.equal(data.status, 'arrived');
+  assert.ok(data.arrivedAt);
+  assert.equal(data.walkIn, true);
+  assert.deepEqual(data.history.map((h) => h.type), ['created', 'status']);
 });

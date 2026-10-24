@@ -71,30 +71,36 @@ function coversAt(date, time) {
 }
 
 /**
- * Services ouverts ce jour-là, avec leurs créneaux : indisponible si trop tôt (délai minimum),
- * si l'heure a déjà son maximum de couverts, ou si le service n'a plus de table pour ce groupe.
+ * Services ouverts ce jour-là, avec tous leurs créneaux. Indisponible (grisé sur la page) si l'heure est
+ * passée ou trop proche (délai minimum : `tooSoon`), si elle a déjà son maximum de couverts, ou si le service
+ * n'a plus de table pour ce groupe (`full`).
  * `notice` : la table serait dans une zone qui demande l'accord du client (sa description le prévient).
  */
 function availability(date, people, settings) {
   return getServices()
     .filter((s) => isServiceOpen(date, s.id, serviceExceptions()))
     .map((s) => {
-      const slots = slotsOf(s, settings.step).filter((time) => farEnough(date, time, settings));
-      const placement = slots.length ? placementFor({ id: 'probe', date, time: s.start, people, tableIds: [], status: 'expected' }) : null;
-      const full = slots.length > 0 && !placement;
+      const times = slotsOf(s, settings.step);
+      const open = times.filter((time) => farEnough(date, time, settings));
+      // Plus aucun créneau réservable (service passé) : on ne cherche pas de table, il n'est pas « complet »
+      const placement = open.length ? placementFor({ id: 'probe', date, time: s.start, people, tableIds: [], status: 'expected' }) : null;
+      const full = open.length > 0 && !placement;
       const notice = confirmAreaOf(placement);
       return {
         id: s.id,
         label: s.label,
         full,
         notice: notice ? publicArea(notice) : null,
-        slots: slots.map((time) => ({
-          time,
-          available: !full && (!settings.maxCoversPerSlot || coversAt(date, time) + people <= settings.maxCoversPerSlot),
-        })),
+        slots: times.map((time) => {
+          const tooSoon = !open.includes(time);
+          return {
+            time,
+            ...(tooSoon ? { tooSoon: true } : {}),
+            available: !tooSoon && !full && (!settings.maxCoversPerSlot || coversAt(date, time) + people <= settings.maxCoversPerSlot),
+          };
+        }),
       };
-    })
-    .filter((s) => s.slots.length); // service déjà passé (ou trop proche) : on ne le montre pas
+    });
 }
 
 const parsePeople = (value, settings) => {
@@ -180,6 +186,13 @@ router.post('/reservations', async (req, res) => {
   const service = availability(date, people, settings).find((s) => s.id === serviceOf(time));
   const slot = service?.slots.find((s) => s.time === time);
   if (!slot) throw httpError(409, 'Cet horaire n’est pas disponible. Choisissez-en un autre.', 'slot');
+  if (slot.tooSoon) {
+    const notice = settings.minNoticeMinutes;
+    const delay = notice >= 1440 ? `${notice / 1440} jour${notice >= 2880 ? 's' : ''}` : notice >= 60 ? `${notice / 60} h` : `${notice} min`;
+    throw httpError(409, notice
+      ? `Cet horaire est trop proche : les réservations en ligne se font au moins ${delay} à l'avance.`
+      : 'Cet horaire est déjà passé.', 'slot');
+  }
   if (!slot.available) {
     throw httpError(
       409,

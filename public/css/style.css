@@ -145,10 +145,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .date-nav .picker-btn { min-width: 132px; }
 .date-nav .picker-btn span::first-letter, .field .picker-btn span::first-letter { text-transform: uppercase; }
 .field .picker-btn { width: 100%; padding: 0 10px; }
-/* Formulaire de réservation : « Personnes » étroit (2 chiffres), la date a la place de s'afficher en entier */
-dialog .row .field:has(input[name="people"]) { flex: 0 0 96px; }
-dialog .row .field:has([data-picker="date"]) { flex: 1.6 1 0; }
-dialog .row .field:has([data-picker="time"]) { flex: 0 0 112px; }
 /* Même hauteur pour les champs d'une ligne (nombre, date, heure, tables…) */
 .field input:not([type="checkbox"]), .field select, .field .picker-btn { height: var(--field-h, 38px); }
 
@@ -197,22 +193,38 @@ dialog.picker::backdrop { background: rgba(20, 20, 15, .35); backdrop-filter: no
 .pk-legend-pos i + i { margin-left: -1px; }
 .pk-foot { display: flex; align-items: center; gap: 6px; padding: 8px 12px 12px; }
 
-/* Heure : grands chiffres (heures / minutes), cadran */
-.pk-time { flex-direction: row; align-items: center; justify-content: center; gap: 4px; font-size: 44px; font-weight: 500; }
-.pk-seg {
-  border: 0; border-radius: 10px; padding: 2px 8px; background: none; color: inherit; opacity: .6;
-  font: inherit; font-variant-numeric: tabular-nums; cursor: pointer;
+/* Heure : saisie au clavier, puis les créneaux de chaque service */
+dialog.picker:has(.pk-time-list) { display: flex; flex-direction: column; max-height: min(640px, calc(100dvh - 24px)); }
+dialog.picker:not([open]) { display: none; }
+.pk-manual { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.pk-manual label { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.pk-manual-row { display: flex; gap: 8px; }
+.pk-manual input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--ink); font: inherit; font-size: 16px; font-variant-numeric: tabular-nums;
 }
-.pk-seg.on { opacity: 1; background: color-mix(in srgb, var(--accent-ink) 16%, transparent); }
-.pk-dial-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 16px; }
-.pk-dial { width: 256px; max-width: 100%; height: auto; touch-action: none; cursor: pointer; user-select: none; }
-.pk-dial .face { fill: var(--surface-2); }
-.pk-dial .hand { stroke: var(--accent); stroke-width: 2; }
-.pk-dial .pivot, .pk-dial .knob { fill: var(--accent); }
-.pk-dial text { fill: var(--ink); font: 500 14px var(--font); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.pk-dial text.inner { font-size: 12px; fill: var(--ink-2); }
-.pk-dial text.on { fill: var(--accent-ink); font-weight: 700; }
-.pk-hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
+.pk-manual input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+.pk-manual .btn { height: 38px; padding: 0 16px; }
+.pk-error { margin: 0; font-size: 12.5px; color: var(--danger); }
+.pk-error:empty { display: none; }
+.pk-time-list { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 14px; }
+.pk-group h3 { margin: 0 0 8px; font-size: 13px; font-weight: 650; color: var(--ink); }
+.pk-group h3 span { font-weight: 400; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.pk-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.pk-slot {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-height: 40px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  color: var(--ink); font: inherit; font-size: 14.5px; font-weight: 550; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.pk-slot small { font-size: 10.5px; font-weight: 400; color: var(--muted); }
+.pk-slot:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pk-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pk-slot.selected { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pk-slot.selected small { color: inherit; opacity: .85; }
+/* Créneau passé : grisé, comme sur la page de réservation */
+.pk-slot:disabled { background: var(--surface-2); color: var(--muted); opacity: .55; cursor: default; text-decoration: line-through; }
+.pk-none { margin: 0; font-size: 13px; color: var(--muted); }
+.pk-time-list + .pk-foot { border-top: 1px solid var(--line); padding-top: 10px; }
 .date-nav input {
   border: 1px solid var(--line);
   background: var(--surface-2);
@@ -377,6 +389,9 @@ kbd {
 .tg-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .tg-meta b { font-weight: 600; color: var(--warn); }
 .tg-line { flex: 1; height: 1px; background: var(--line); }
+/* Section « Sans réservation » : à part des créneaux de réservation */
+.time-group.section-group { margin-top: 14px; }
+.time-group.section-group .tg-time { color: var(--accent); }
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 500; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
 
@@ -552,40 +567,65 @@ mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inhe
 /* ---------- Fiche d'une réservation (toucher une carte) ---------- */
 
 dialog.detail { width: min(440px, calc(100vw - 24px)); }
-/* Ordinateur / tablette : fiche au centre, voile léger et sans flou :
-   la table mise en évidence reste bien visible derrière */
 @media (min-width: 701px) {
   dialog.detail { max-height: calc(100vh - 48px); overflow-y: auto; }
-  dialog.detail::backdrop { background: rgba(20, 20, 15, .12); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
-/* Plan fermé : rien à garder visible derrière, la liste est floutée pour mettre la fiche en avant */
-body.list-only dialog.detail::backdrop {
+/* Fiche ouverte : tout l'arrière-plan est flouté (plan ouvert ou fermé) pour mettre la fiche en avant.
+   Pour voir la table : bouton « Voir sa table » dans la fiche. */
+dialog.detail::backdrop {
   background: rgba(20, 20, 15, .28);
   -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
 }
 .dt { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .dt-head { display: grid; grid-template-columns: 1fr auto auto; align-items: start; gap: 12px; }
-.dt-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.dt-title h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; overflow-wrap: anywhere; }
-.dt-people { font-size: 13px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
-.dt-people b { font-size: 22px; font-weight: 650; color: var(--ink); }
+.dt-title { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dt-title h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.dt-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 13px; color: var(--ink-2); }
+.dt-sub b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.dt-sep { color: var(--line-strong); }
+.dt-people { display: flex; flex-direction: column; align-items: center; line-height: 1; padding: 6px 10px; border-radius: 12px; background: var(--surface-2); }
+.dt-people b { font-size: 22px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dt-people span { margin-top: 3px; font-size: 11px; color: var(--muted); }
+.dt-tables { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.dt-pin { display: inline-flex; align-items: center; gap: 4px; color: var(--pin); font-weight: 600; font-size: 12.5px; }
 .dt-rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
 .dt-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; padding: 9px 12px; font-size: 13.5px; }
 .dt-row + .dt-row { border-top: 1px solid var(--line); }
 .dt-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
 .dt-value { min-width: 0; overflow-wrap: anywhere; }
 .dt-value .pill { font-size: 13px; font-weight: 650; }
+.dt-empty { color: var(--muted); font-style: italic; font-size: 13px; }
 .dt .rc-note { margin: 0; }
 .dt-main { display: flex; gap: 8px; flex-wrap: wrap; }
-.dt-main .rc-btn, .dt-actions .rc-btn { height: 38px; padding: 0 12px; font-size: 13.5px; }
-.dt-main .rc-btn.primary { flex: 1; justify-content: center; }
-.dt-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
-.dt-actions .rc-btn { border-color: var(--line); justify-content: flex-start; min-width: 0; white-space: normal; text-align: left; line-height: 1.2; }
-.dt-actions .rc-btn.pinned { border-color: transparent; }
+.dt-main { align-items: center; }
+.dt-main .rc-btn { flex: 1; height: 46px; justify-content: center; font-size: 15px; font-weight: 600; border-radius: 12px; }
+/* Action principale (Arrivé, Libérer…) : pleine, bien visible */
+.dt-main .rc-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.dt-main .rc-btn.primary:hover { opacity: .9; background: var(--accent); color: var(--accent-ink); }
+.dt-link {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 6px 4px;
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.dt-link:hover { color: var(--ink); text-decoration: underline; }
+/* Actions de la fiche : trois tuiles égales, icône au-dessus du libellé */
+.dt-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dt .dt-actions .rc-btn {
+  height: auto; min-height: 68px; padding: 10px 6px; flex-direction: column; justify-content: center; gap: 7px;
+  border: 1px solid transparent; border-radius: 12px; background: var(--surface-2); color: var(--ink-2);
+  font-size: 12.5px; font-weight: 500; line-height: 1.2; text-align: center; white-space: normal; min-width: 0;
+}
+.dt .dt-actions .rc-btn svg { width: 19px; height: 19px; }
+.dt .dt-actions .rc-btn:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-2); }
+.dt .dt-actions .rc-btn.primary { background: var(--accent-soft); color: var(--accent); }
+.dt .dt-actions .rc-btn.primary:hover { border-color: var(--accent-line); color: var(--accent); }
+.dt .dt-actions .rc-btn.has-note { color: #b7791f; }
+.dt .dt-actions .rc-btn:disabled { opacity: .55; cursor: default; }
+.dt .dt-actions .rc-btn:disabled:hover { border-color: transparent; }
 @media (max-width: 700px) {
   dialog.detail { margin: auto 0 var(--vv-bottom, 0px); width: 100%; max-width: 100%; border-radius: 18px 18px 0 0; border-bottom: 0; }
   .dt { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
-  .dt-main .rc-btn, .dt-actions .rc-btn { height: 44px; font-size: 14.5px; }
+  .dt-main .rc-btn { height: 48px; }
+  .dt .dt-actions .rc-btn { min-height: 72px; font-size: 13px; }
   .dt-row { grid-template-columns: 96px 1fr; }
 }
 
@@ -729,6 +769,46 @@ body.list-only dialog.detail::backdrop {
 .table-row .field em { font-style: normal; font-weight: 400; color: var(--muted); }
 .table-row .switch { white-space: nowrap; padding-bottom: 9px; }
 .table-row .switch input:checked + span { background: var(--pin); }
+
+/* ---------- Formulaire de réservation (nouvelle / modifier) ----------
+   En-tête et boutons toujours visibles, le milieu défile ; champs rangés par sections. */
+dialog.res-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(var(--app-h, 100dvh) - 32px); overflow: hidden; }
+dialog.res-dialog[open] { display: flex; flex-direction: column; }
+dialog.res-dialog form { padding: 0; gap: 0; flex: 1; min-height: 0; }
+.rf-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+.rf-title { flex: 1; min-width: 0; }
+.rf-title h2 { margin: 0; font-size: 19px; font-weight: 650; }
+.rf-sub { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+.rf-sub:empty { display: none; }
+.rf-body:focus { outline: none; }
+.rf-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 16px; display: flex; flex-direction: column; }
+.rf-section { display: flex; flex-direction: column; gap: 12px; padding: 16px 0; }
+.rf-section + .rf-section { border-top: 1px solid var(--line); }
+.rf-section h3 { margin: 0; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.rf-when { display: grid; grid-template-columns: auto minmax(0, 1fr) 112px; gap: 10px; align-items: end; }
+.rf-section .time-hint { margin-top: -6px; }
+.rf-section .time-hint:empty { display: none; }
+/* Personnes : − nombre + (gros boutons, faciles au doigt) */
+.stepper { display: flex; align-items: stretch; height: var(--field-h, 38px); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
+.stepper:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.stepper button { width: 34px; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 18px; cursor: pointer; flex: none; }
+.stepper button:hover { background: var(--line); color: var(--ink); }
+.stepper button:disabled { opacity: .35; cursor: default; background: none; }
+.field .stepper input {
+  width: 44px; height: auto; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none !important;
+  text-align: center; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rf-time .picker-btn span { font-weight: 600; }
+/* Fixer : libellé + explication sous le libellé */
+.rf-pin { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
+.rf-pin span { grid-row: span 2; }
+.rf-pin b { font-weight: 500; color: var(--ink); }
+.rf-pin em { font-style: normal; font-size: 12px; color: var(--muted); }
+.rf-pin input:checked + span { background: var(--pin); }
+.res-dialog .form-error, .res-dialog .no-table { margin-top: 4px; }
+.rf-foot { margin: 0; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--surface); align-items: center; }
+.rf-save { min-width: 140px; justify-content: center; }
 
 /* ---------- Plan de salle ---------- */
 
@@ -1092,6 +1172,20 @@ dialog::backdrop { background: rgba(20, 20, 15, .3); backdrop-filter: blur(2px);
 dialog form { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
 dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .dialog-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+/* Boîte de confirmation de l'application (remplace confirm() du navigateur) */
+dialog.confirm-dialog { width: min(420px, calc(100vw - 32px)); }
+dialog.confirm-dialog::backdrop { background: rgba(20, 20, 15, .35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.cd { gap: 10px !important; }
+.cd h2 { margin: 0 0 2px; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+.cd p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.cd-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger-fill:hover { opacity: .9; }
+@media (max-width: 700px) {
+  .cd-actions { flex-direction: column-reverse; }
+  .cd-actions .btn { width: 100%; }
+}
 .spacer { flex: 1; }
 .form-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
 .form-error:empty { display: none; }
@@ -1151,7 +1245,7 @@ dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: 
 .settings-card + .settings-card { margin-top: 4px; }
 .settings-section > .muted a { color: var(--accent); }
 .settings-card .switch b { font-weight: 600; color: var(--ink); font-size: 14px; }
-.booking-save { align-items: center; }
+.booking-save { margin: 0; }
 .settings-card > .btn.small, .settings-card .item-form > .btn.small { align-self: flex-start; }
 
 @media (max-width: 700px) {
@@ -1206,7 +1300,7 @@ body.locked .topbar, body.locked .layout { visibility: hidden; }
   background: var(--ink); color: var(--surface);
   padding: 10px 14px; border-radius: 10px; font-size: 13px;
   box-shadow: var(--shadow-lg);
-  max-width: 360px;
+  max-width: 360px; white-space: pre-line; /* plusieurs messages : un par ligne */
   animation: toast-in .25s ease-out;
   transition: opacity .3s, transform .3s;
 }
@@ -1297,14 +1391,16 @@ body.compact .res-list { gap: 4px; padding-top: 4px; }
 body.compact .res-card { padding: 4px 8px 4px 12px; gap: 0; }
 body.compact .time-group { padding-top: 6px; padding-bottom: 4px; }
 body.compact .tg-time { font-size: 13px; }
+/* Colonnes de droite à largeur fixe (tables, personnes, action) : quels que soient les tags d'une ligne,
+   le nom et les notes commencent au même endroit sur toutes les lignes */
 body.compact .rc-head {
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: 112px minmax(0, 1fr) auto 200px 60px 100px;
   grid-template-areas: 'status name flags tables people main';
   row-gap: 0; column-gap: 12px;
 }
 body.compact .rc-sub { display: contents; }
 body.compact .rc-status { grid-area: status; width: 112px; overflow: hidden; } /* même largeur pour tous : les noms restent alignés */
-body.compact .rc-tables { grid-area: tables; justify-content: flex-end; }
+body.compact .rc-tables { grid-area: tables; justify-content: flex-end; min-width: 0; overflow: hidden; }
 body.compact .rc-name { font-size: 15px; }
 body.compact .rc-people { font-size: 15px; min-width: 52px; justify-content: flex-end; }
 body.compact .rc-main { min-width: 92px; }
@@ -1319,14 +1415,15 @@ body.compact .rc-flags { grid-area: flags; display: flex; align-items: center; g
 .rc-flag > span { display: none; }
 /* Liste assez large : le début des notes tient sur la ligne */
 @container reslist (min-width: 880px) {
-  body.compact .rc-head { grid-template-columns: auto minmax(160px, 0.9fr) minmax(0, 1.4fr) auto auto auto; }
+  body.compact .rc-head { grid-template-columns: 112px minmax(160px, 0.9fr) minmax(0, 1.4fr) 230px 60px 100px; }
   body.compact .rc-flags { gap: 14px; }
-  body.compact .rc-flag { max-width: 50%; }
+  /* Une seule note : toute la colonne ; deux notes : elles se partagent la place (chacune rétrécit au besoin) */
+  body.compact .rc-flag { flex: 0 1 auto; min-width: 0; }
   body.compact .rc-flag > span { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 /* Liste étroite (colonne à côté du plan, téléphone) : statut réduit à son point, action en icône */
 @container reslist (max-width: 600px) {
-  body.compact .rc-head { column-gap: 8px; }
+  body.compact .rc-head { grid-template-columns: auto minmax(0, 1fr) auto auto auto auto; column-gap: 8px; }
   body.compact .rc-status { width: auto; }
   body.compact .rc-status-text { display: none; }
   body.compact .rc-status .rc-undo { display: none; } /* « Annuler l'arrivée » reste dans la fiche */
@@ -1429,6 +1526,20 @@ body.compact .rc-flags { grid-area: flags; display: flex; align-items: center; g
 }
 .sheet-grip { width: 40px; height: 4px; margin: 4px auto 10px; border-radius: 2px; background: var(--line-strong); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+
+/* Table libre : clients sans réservation, nouvelle réservation (menu ou fiche du bas) */
+dialog.table-menu { width: min(400px, calc(100vw - 24px)); }
+.tm-actions { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.tm-walkin { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--accent-line); border-radius: var(--radius); background: var(--accent-soft); }
+.tm-label { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.tm-walkin .tm-label { color: var(--accent); }
+.tm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tm-stepper { display: inline-flex; align-items: center; gap: 6px; }
+.tm-stepper .icon-btn { border: 1px solid var(--line-strong); background: var(--surface); }
+.tm-stepper output { min-width: 28px; text-align: center; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tm-install { height: 38px; }
+.tm-new { height: 40px; justify-content: center; border-color: var(--line); }
+.table-menu .sheet-picks { margin-top: 6px; }
 .sheet-head strong { font-size: 18px; }
 .sheet-head .muted { font-size: 13.5px; }
 .sheet-list { list-style: none; margin: 0; padding: 0; }
@@ -1604,10 +1715,16 @@ button, a, .res-card, .table { -webkit-tap-highlight-color: transparent; }
   dialog { max-height: calc(var(--app-h, 100dvh) - 24px); overflow-y: auto; overscroll-behavior: contain; }
   dialog form { padding: 18px; }
   .row { flex-wrap: wrap; }
+  dialog.res-dialog { width: 100vw; max-width: 100vw; height: var(--app-h, 100dvh); max-height: var(--app-h, 100dvh); margin: 0; border: 0; border-radius: 0; }
+  .rf-head { padding: 14px 16px 12px; padding-top: max(14px, env(safe-area-inset-top)); }
+  .rf-body { padding: 0 16px 16px; }
+  .rf-when { grid-template-columns: auto minmax(0, 1fr); }
+  .rf-when .rf-date { grid-column: 1 / -1; order: -1; }
+  .rf-foot { padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .rf-foot #deleteRes { padding: 0 10px; }
+  .rf-foot .spacer { display: none; }
+  .rf-save { flex: 1; min-width: 0; }
   dialog .row .field { flex: 1 1 40%; min-width: 0; }
-  /* La date a besoin de place : seule sur sa ligne, en premier */
-  dialog .row .field:has([data-picker="date"]) { flex-basis: 100%; order: -1; }
-  dialog .row .field:has(input[name="people"]), dialog .row .field:has([data-picker="time"]) { flex: 1 1 40%; }
 
   /* ---- Haut de la liste compact : plus de réservations visibles ----
      Les zones de toucher restent ≥ 34 px ; le champ de recherche garde 16 px (pas de zoom auto sur iPhone). */

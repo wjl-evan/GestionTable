@@ -41,10 +41,10 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
   libre est attribuée automatiquement ; s'il n'y en a plus pour son groupe, le service est affiché « Complet ». La
   demande particulière est facultative. La réservation apparaît aussitôt chez l'équipe ; l'historique indique
   « Réservation en ligne ». Anti-abus : 5 réservations par heure et par adresse, piège à robots.
-  **Réglages** (*Paramètres* → *Réservation en ligne*) :
+  **Réglages** (*Paramètres* → *Réservation en ligne*, enregistrés automatiquement à chaque changement) :
   - ouverte ou fermée (avec un message pour les clients quand elle est fermée) ;
   - nom et téléphone du restaurant, informations affichées en haut de la page ;
-  - délai minimum avant le créneau (par défaut 1 h ; aucun à 2 jours) et jusqu'à combien de jours à l'avance (60) ;
+  - délai minimum avant le créneau (par défaut 1 h ; aucun à 2 jours ; les heures trop proches restent affichées, grisées) et jusqu'à combien de jours à l'avance (60) ;
   - créneaux toutes les 15, 30 ou 60 min ;
   - nombre maximum de personnes (12 ; au-delà, le client est invité à appeler) ;
   - couverts maximum par créneau (toutes réservations à la même heure, 0 = sans limite) pour étaler les arrivées ;
@@ -132,6 +132,18 @@ Au premier lancement, `data/db.json` est créé avec un plan et des réservation
 - Le choix fait dans la barre ne vaut que pour cette réservation, sans créer de fusion permanente ; si on se
   serre, elle est marquée « serré » (ex. 7/6).
 - Glisser une table occupée vers une autre pour déplacer la réservation ; la déposer sur la liste pour la retirer.
+- **Cliquer sur une table libre** (sur téléphone : la toucher) : un menu propose
+  - **Clients sans réservation** : choisir le nombre de personnes puis « Installer maintenant » — une réservation
+    « Sans réservation » est créée à cette table, déjà arrivée (aujourd'hui, pour un service en cours ou à venir :
+    avant le début du service, elle est notée à l'heure de début) ;
+  - **Nouvelle réservation à cette table** : le formulaire habituel, la table déjà remplie ;
+  - les réservations « à placer » du service, pour les y installer en un clic.
+  Dans la liste, les clients sans réservation sont à part : section « Sans réservation » en fin de liste (hors des
+  créneaux horaires) et filtre « Sans réservation ».
+- **Déposer sur une table déjà occupée** (ou la toucher en mode placement) : une confirmation indique qui l'occupe et ce
+  qu'il deviendra (« sera déplacé·e en T5 », ou « aucune autre table libre : à placer »). Si on accepte, la réservation
+  prend la table et l'autre reçoit automatiquement une table libre (sinon elle passe « à placer »). Impossible si l'autre
+  réservation est fixée ou si ses clients sont déjà installés.
 - **Salle entièrement personnalisable** (bouton « Modifier le plan ») :
   - dimensions de la salle (jusqu'à 4000 × 4000) ;
   - tables : ajout, déplacement, redimensionnement (poignée), nom, places, forme, fusionnable ou non ;

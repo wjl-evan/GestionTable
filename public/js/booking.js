@@ -168,7 +168,8 @@ function renderSlots() {
       const body = s.full
         ? `<p class="bk-full">Complet pour ${state.people} personne${state.people > 1 ? 's' : ''}.</p>`
         : `<div class="bk-slot-grid">${s.slots
-            .map((sl) => `<button type="button" class="bk-slot${sl.time === state.time ? ' selected' : ''}" data-time="${sl.time}" ${sl.available ? '' : 'disabled'}${sl.time === state.time ? ' aria-pressed="true"' : ''}>${frTime(sl.time)}</button>`)
+            .map((sl) => `<button type="button" class="bk-slot${sl.time === state.time ? ' selected' : ''}" data-time="${sl.time}" ${sl.available ? '' : 'disabled'}${
+              sl.available ? '' : ` title="${sl.tooSoon ? 'Trop tard pour réserver cette heure en ligne' : 'Complet à cette heure'}"`}${sl.time === state.time ? ' aria-pressed="true"' : ''}>${frTime(sl.time)}</button>`)
             .join('')}</div>`;
       return `<div class="bk-service"><h3>${esc(s.label)} <small>${frTime(first)} – ${frTime(last)}</small></h3>${body}</div>`;
     })

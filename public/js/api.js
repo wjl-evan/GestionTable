@@ -65,7 +65,7 @@ export const api = {
   cancelReservation: (id) => request('POST', `/api/reservations/${id}/cancel`),
   uncancelReservation: (id) => request('POST', `/api/reservations/${id}/uncancel`),
   assignManual: (id, tableIds) => request('POST', `/api/reservations/${id}/assign-manual`, { tableIds }),
-  assign: (id, tableId) => request('POST', `/api/reservations/${id}/assign`, { tableId }),
+  assign: (id, tableId, extra = {}) => request('POST', `/api/reservations/${id}/assign`, { tableId, ...extra }),
   setStatus: (id, status) => request('POST', `/api/reservations/${id}/status`, { status }),
   settings: () => request('GET', '/api/settings'),
   updateServices: (services) => request('PUT', '/api/services', { services }),

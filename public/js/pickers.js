@@ -1,8 +1,8 @@
 /**
  * Sélecteurs de date et d'heure maison (à la place de ceux du navigateur, différents partout).
  * - Date : calendrier du mois, toucher un jour le choisit.
- * - Heure : cadran façon Android — d'abord l'heure (1-12 à l'extérieur, 13-00 à l'intérieur),
- *   puis les minutes (par 5) ; on peut toucher ou faire glisser le doigt sur le cadran.
+ * - Heure : liste des créneaux (ceux proposés aux clients, par service), et un champ pour taper
+ *   n'importe quelle autre heure au clavier.
  * Chaque bouton `[data-picker]` affiche la valeur d'un champ caché (`data-for`) et l'ouvre au clic ;
  * le choix met à jour le champ et déclenche son événement « change ».
  */
@@ -180,170 +180,116 @@ function openDate(input, withDots) {
   dlg.querySelector('.selected, .today, [data-day]')?.focus();
 }
 
-/* ---------- Horloge façon Android ---------- */
+/* ---------- Heure : liste des créneaux + saisie au clavier ---------- */
 
-const SIZE = 256;
-const C = SIZE / 2;
-const R_OUT = 100; // anneau extérieur (1-12, et minutes)
-const R_IN = 64; // anneau intérieur (13-00)
+// Créneaux proposés, fournis par l'application : input → [{ label, range, slots: [{ time, disabled, note }] }]
+// (ou null : liste générique, toutes les 30 minutes)
+let timeSlots = null;
 
-const polar = (index, r) => {
-  const a = (index * 30 - 90) * (Math.PI / 180);
-  return { x: C + r * Math.cos(a), y: C + r * Math.sin(a) };
-};
+/** Liste générique (réglages des services…) : toute la journée, par 30 minutes. */
+function genericSlots() {
+  const slots = [];
+  for (let m = 0; m < 24 * 60; m += 30) slots.push({ time: `${pad(Math.floor(m / 60))}:${pad(m % 60)}` });
+  return [{ label: 'Toute la journée', range: '', slots }];
+}
+
+/**
+ * Heure tapée au clavier → « HH:MM », ou null si elle n'est pas valable.
+ * Accepte « 19:45 », « 19h45 », « 19h », « 19 », « 1945 », « 945 », « 9.45 »…
+ */
+export function parseTime(text) {
+  const t = String(text ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  let m = t.match(/^(\d{1,2})(?:[h:.](\d{2})?)?$/);
+  let h;
+  let min;
+  if (m) {
+    h = Number(m[1]);
+    min = m[2] === undefined ? 0 : Number(m[2]);
+  } else if ((m = t.match(/^(\d{1,2})(\d{2})$/))) {
+    h = Number(m[1]);
+    min = Number(m[2]);
+  } else return null;
+  if (h > 23 || min > 59) return null;
+  return `${pad(h)}:${pad(min)}`;
+}
 
 function openTime(input) {
   const dlg = getDialog();
-  const [h0, m0] = (input.value || '20:00').split(':').map(Number);
-  let hour = Number.isFinite(h0) ? h0 : 20;
-  let minute = Number.isFinite(m0) ? m0 : 0;
-  let mode = 'hour';
+  const current = input.value;
+  const groups = timeSlots?.(input) ?? genericSlots();
+  const known = new Set(groups.flatMap((g) => g.slots.map((s) => s.time)));
 
-  // Position du curseur sur le cadran pour la valeur actuelle
-  const handOf = () => {
-    if (mode === 'minute') return { ...polar(minute / 5, R_OUT), r: R_OUT };
-    const inner = hour === 0 || hour > 12;
-    return { ...polar(hour % 12, inner ? R_IN : R_OUT), r: inner ? R_IN : R_OUT };
+  const slotBtn = (s) => {
+    const on = s.time === current;
+    // Un créneau passé reste choisissable s'il est déjà celui de la réservation
+    const disabled = s.disabled && !on;
+    return `<button type="button" class="pk-slot${on ? ' selected' : ''}" data-time="${s.time}"${disabled ? ' disabled' : ''}${s.title ? ` title="${s.title}"` : ''}>
+      <span>${s.time}</span>${s.note ? `<small>${s.note}</small>` : ''}</button>`;
   };
+  const groupHtml = (g) => `
+    <section class="pk-group">
+      <h3>${g.label}${g.range ? ` <span>${g.range}</span>` : ''}</h3>
+      ${g.slots.length ? `<div class="pk-slots">${g.slots.map(slotBtn).join('')}</div>` : `<p class="pk-none">${g.empty ?? 'Aucun créneau'}</p>`}
+    </section>`;
 
-  const faceSvg = () => {
-    const labels = [];
-    if (mode === 'hour') {
-      for (let i = 0; i < 12; i++) {
-        const outer = i === 0 ? 12 : i;
-        const inner = i === 0 ? 0 : i + 12;
-        const po = polar(i, R_OUT);
-        const pi = polar(i, R_IN);
-        labels.push(`<text x="${po.x}" y="${po.y}" class="${outer === hour ? 'on' : ''}">${outer}</text>`);
-        labels.push(`<text x="${pi.x}" y="${pi.y}" class="inner ${inner === hour ? 'on' : ''}">${pad(inner)}</text>`);
-      }
-    } else {
-      for (let i = 0; i < 12; i++) {
-        const p = polar(i, R_OUT);
-        labels.push(`<text x="${p.x}" y="${p.y}" class="${i * 5 === minute ? 'on' : ''}">${pad(i * 5)}</text>`);
-      }
-    }
-    const hand = handOf();
-    return `<svg class="pk-dial" viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Cadran">
-      <circle cx="${C}" cy="${C}" r="${C - 4}" class="face" />
-      <line x1="${C}" y1="${C}" x2="${hand.x}" y2="${hand.y}" class="hand" />
-      <circle cx="${C}" cy="${C}" r="4" class="pivot" />
-      <circle cx="${hand.x}" cy="${hand.y}" r="18" class="knob" />
-      ${labels.join('')}
-    </svg>`;
-  };
-
-  const draw = () => {
-    dlg.innerHTML = `
-      <div class="pk-head pk-time">
-        <button type="button" class="pk-seg ${mode === 'hour' ? 'on' : ''}" data-mode="hour" aria-label="Heures">${pad(hour)}</button>
-        <span>:</span>
-        <button type="button" class="pk-seg ${mode === 'minute' ? 'on' : ''}" data-mode="minute" aria-label="Minutes">${pad(minute)}</button>
+  dlg.innerHTML = `
+    <div class="pk-head">
+      <span class="pk-year">Heure</span>
+      <strong>${current || '--:--'}</strong>
+    </div>
+    <form class="pk-manual" novalidate>
+      <label for="pkTimeInput">Autre heure, au clavier</label>
+      <div class="pk-manual-row">
+        <input id="pkTimeInput" inputmode="numeric" autocomplete="off" placeholder="ex. 19h45" value="${current && !known.has(current) ? current : ''}" />
+        <button type="submit" class="btn primary small">OK</button>
       </div>
-      <div class="pk-body pk-dial-wrap">${faceSvg()}
-        <p class="pk-hint">${mode === 'hour' ? 'Choisissez l’heure — 13 h à 00 h sur le cercle intérieur' : 'Choisissez les minutes'}</p>
-      </div>
-      <div class="pk-foot">
-        <span class="spacer"></span>
-        <button type="button" class="btn ghost small" data-cancel>Annuler</button>
-        <button type="button" class="btn primary small" data-ok>OK</button>
-      </div>`;
-    bindDial();
-  };
+      <p class="pk-error" role="alert"></p>
+    </form>
+    <div class="pk-body pk-time-list">${groups.map(groupHtml).join('')}</div>
+    <div class="pk-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost small" data-cancel>Annuler</button>
+    </div>`;
 
-  // Valeur sous le doigt / la souris
-  const pick = (e, svg) => {
-    const box = svg.getBoundingClientRect();
-    const x = ((e.clientX - box.left) / box.width) * SIZE - C;
-    const y = ((e.clientY - box.top) / box.height) * SIZE - C;
-    const angle = (Math.atan2(x, -y) * 180) / Math.PI;
-    const deg = (angle + 360) % 360;
-    if (mode === 'hour') {
-      const i = Math.round(deg / 30) % 12;
-      const inner = Math.hypot(x, y) < (R_IN + R_OUT) / 2;
-      hour = inner ? (i === 0 ? 0 : i + 12) : i === 0 ? 12 : i;
-    } else {
-      minute = (Math.round(deg / 30) * 5) % 60; // par 5 minutes
-    }
+  const field = dlg.querySelector('#pkTimeInput');
+  const error = dlg.querySelector('.pk-error');
+  const choose = (value) => {
+    dlg.close();
+    commit(input, value);
   };
-
-  let dragging = false;
-  const bindDial = () => {
-    const svg = dlg.querySelector('.pk-dial');
-    svg.addEventListener('pointerdown', (e) => {
-      dragging = true;
-      try {
-        svg.setPointerCapture(e.pointerId); // le glisser continue même si le doigt sort du cadran
-      } catch {
-        /* pointeur déjà relâché : sans importance */
-      }
-      pick(e, svg);
-      redrawDial();
-    });
-    svg.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      pick(e, svg);
-      redrawDial();
-    });
-    svg.addEventListener('pointerup', () => {
-      if (!dragging) return;
-      dragging = false;
-      // Heure choisie : on passe tout de suite aux minutes (comme Android)
-      if (mode === 'hour') {
-        mode = 'minute';
-        draw();
-      }
-    });
+  dlg.querySelector('.pk-manual').onsubmit = (e) => {
+    e.preventDefault();
+    const value = parseTime(field.value);
+    if (value) return choose(value);
+    error.textContent = field.value.trim() ? 'Heure non reconnue : tapez par exemple 19h45, 19:45 ou 1945.' : 'Tapez une heure, ou touchez un créneau.';
+    field.focus();
   };
-  // Pendant le glisser : on redessine le cadran sans recréer la fenêtre (le doigt garde la main)
-  const redrawDial = () => {
-    const svg = dlg.querySelector('.pk-dial');
-    const tmp = document.createElement('div');
-    tmp.innerHTML = faceSvg();
-    svg.innerHTML = tmp.firstElementChild.innerHTML;
-    dlg.querySelector('[data-mode="hour"]').textContent = pad(hour);
-    dlg.querySelector('[data-mode="minute"]').textContent = pad(minute);
-  };
+  field.oninput = () => (error.textContent = '');
 
   dlg.onclick = (e) => {
     if (e.target === dlg) return dlg.close();
-    const seg = e.target.closest('[data-mode]');
-    if (seg) {
-      mode = seg.dataset.mode;
-      return draw();
-    }
-    if (e.target.closest('[data-cancel]')) return dlg.close();
-    if (e.target.closest('[data-ok]')) {
-      dlg.close();
-      commit(input, `${pad(hour)}:${pad(minute)}`);
-    }
+    const slot = e.target.closest('[data-time]');
+    if (slot && !slot.disabled) return choose(slot.dataset.time);
+    if (e.target.closest('[data-cancel]')) dlg.close();
   };
-  // Clavier : flèches pour ajuster, Entrée pour valider
-  dlg.onkeydown = (e) => {
-    const step = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
-    if (step) {
-      e.preventDefault();
-      if (mode === 'hour') hour = (hour + step + 24) % 24;
-      else minute = (minute + step * 5 + 60) % 60;
-      return redrawDial();
-    }
-    if (e.key === 'Enter' && !e.target.closest('[data-cancel]')) {
-      e.preventDefault();
-      dlg.close();
-      commit(input, `${pad(hour)}:${pad(minute)}`);
-    }
-  };
-  draw();
+  dlg.onkeydown = null;
   dlg.showModal();
-  dlg.querySelector('[data-ok]').focus();
+  // Le créneau choisi au milieu de la liste ; sinon le premier encore possible
+  const target = dlg.querySelector('.pk-slot.selected') ?? dlg.querySelector('.pk-slot:not(:disabled)');
+  target?.scrollIntoView({ block: 'center' });
+  // Au doigt, pas de clavier qui s'ouvre tout seul : on montre d'abord les créneaux
+  if (matchMedia('(pointer: coarse)').matches) target?.focus({ preventScroll: true });
+  else field.focus();
 }
 
 /**
  * Branche tous les boutons `[data-picker]` de la page.
  * `options.dayInfo(from, to)` : remplissage des services, pour les points des calendriers `data-dots`.
+ * `options.timeSlots(input)` : créneaux à proposer pour ce champ d'heure (null : liste générique).
  */
 export function initPickers(options = {}) {
   dayInfo = options.dayInfo ?? null;
+  timeSlots = options.timeSlots ?? null;
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-picker]');
     if (!btn) return;

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { getDb, persist, httpError } from '../store.js';
 import { archivedBetween, archivedReservations } from '../retention.js';
-import { areaOfTable, autoAssignByPriority, capacityOf, closedTableIds, findCombination, getServices, isActive, isCancelled, isServiceOpen, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
+import { areaOfTable, autoAssignByPriority, capacityOf, closedTableIds, findCombination, getServices, isActive, isCancelled, isServiceOpen, localDate, serviceOf, STATUSES, statusOf } from '../../shared/rules.js';
 import { assertServiceOpen, assertWithinHours, serviceExceptions, serviceName, setServiceDay } from '../services.js';
 
 const router = Router();
@@ -55,6 +55,20 @@ function changesBetween(before, after) {
     if (a !== b) changes[k] = [a, b];
   }
   return changes;
+}
+
+/**
+ * Pas de réservation dans le passé (ex. à 13 h, plus de réservation pour 12 h 30 le jour même).
+ * À la minute près : un client qui arrive sans réserver peut être noté à l'heure actuelle.
+ */
+function assertNotPast(date, time) {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  if (new Date(`${date}T${time}:00`) < now) {
+    throw httpError(400, date === localDate(now)
+      ? `${time} est déjà passé : choisissez une heure à partir de ${now.toTimeString().slice(0, 5)}.`
+      : 'Cette date est passée : choisissez aujourd’hui ou un jour à venir.', 'past');
+  }
 }
 
 /** Une réservation annulée ou partie ne se place plus sans être rétablie. */
@@ -188,10 +202,10 @@ function assertTablesFreeable(reservation, tableIds) {
  * qui y étaient sont déplacées sur une autre table libre ; s'il n'y en a pas, elles repassent
  * « à placer ». Renvoie les messages à afficher.
  */
-function placeOnChosenTables(reservation, tableIds) {
+function placeOnChosenTables(reservation, tableIds, manual = true) {
   const notices = [];
   const occupants = occupantsOf(reservation, tableIds);
-  setTables(reservation, tableIds, true);
+  setTables(reservation, tableIds, manual);
   for (const o of occupants) {
     const before = tableNamesOf(o.tableIds);
     setTables(o, []);
@@ -326,6 +340,7 @@ router.post('/', async (req, res) => {
     status: 'expected',
     createdAt: new Date().toISOString(),
   });
+  assertNotPast(r.date, r.time);
   // Service fermé ce jour-là : refusé, sauf « ouvrir ce service » (fait seulement si la réservation passe)
   const openIt = assertServiceOpen(r.date, r.time, req.body.allowClosed);
   assertWithinHours(r.time, req.body.allowLate); // heure dans les horaires du service
@@ -351,6 +366,13 @@ router.post('/', async (req, res) => {
 
   if (openIt) setServiceDay(r.date, openIt, true);
   addHistory(r, req, { type: 'created', people: r.people, date: r.date, time: r.time });
+  // Clients sans réservation installés tout de suite (menu d'une table libre) : déjà arrivés
+  if (req.body.arrived) {
+    r.status = 'arrived';
+    r.arrivedAt = new Date().toISOString();
+    r.walkIn = true;
+    addHistory(r, req, { type: 'status', from: 'expected', to: 'arrived' });
+  }
   getDb().reservations.push(r);
   const notices = chosen.length
     ? placeOnChosenTables(r, chosen)
@@ -369,6 +391,8 @@ router.put('/:id', async (req, res) => {
   const sameSet = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
   const chosen = req.body.tables === undefined ? null : resolveTableInput(req.body.tables);
   const changeTables = chosen !== null && !sameSet(chosen, current.tableIds);
+  // Nouvelle date ou heure : pas dans le passé (corriger le nom ou les notes d'une réservation passée reste possible)
+  if (next.date !== current.date || next.time !== current.time) assertNotPast(next.date, next.time);
   const changesService = next.date !== current.date || serviceOf(next.time) !== serviceOf(current.time);
   const openIt = changesService ? assertServiceOpen(next.date, next.time, req.body.allowClosed) : null;
   if (next.time !== current.time) assertWithinHours(next.time, req.body.allowLate);
@@ -446,7 +470,14 @@ router.post('/:id/assign', async (req, res) => {
     const area = areaOfTable(table, db.zones);
     throw httpError(409, `${table.name} est dans la zone « ${area.label} », fermée à ce service. Choisissez une autre table, ou ses tables à la main (« Sur le plan »).`);
   }
-  if (busy.has(table.id)) throw httpError(409, `${table.name} est déjà occupée sur ce service.`);
+
+  // Table déjà occupée : la réservation prend sa place et l'autre est déplacée sur une table libre.
+  // On demande d'abord confirmation (code « occupied », avec ce qui arrivera à l'autre réservation).
+  const occupants = occupantsOf(reservation, [table.id]);
+  if (occupants.length) {
+    assertTablesFreeable(reservation, [table.id]); // fixée ou clients installés : on ne la déloge pas
+    for (const id of occupants.flatMap((o) => o.tableIds)) busy.delete(id); // ses tables se libèrent
+  }
 
   const combo = findCombination(db.tables, table.id, reservation.people, busy, db.groups);
   if (!combo) {
@@ -457,9 +488,35 @@ router.post('/:id/assign', async (req, res) => {
     throw httpError(409, reason);
   }
 
-  setTables(reservation, combo);
+  const displaced = occupantsOf(reservation, combo);
+  if (displaced.length && !req.body.allowDisplace) {
+    // Où iraient les réservations délogées ? (mêmes règles que le placement automatique)
+    const service = serviceOf(reservation.time);
+    const moving = new Set([reservation.id, ...displaced.map((o) => o.id)]);
+    const busyAfter = new Set([
+      ...combo,
+      ...db.reservations
+        .filter((o) => !moving.has(o.id) && o.date === reservation.date && serviceOf(o.time) === service && isActive(o))
+        .flatMap((o) => o.tableIds),
+      ...closedTables(reservation.date, service),
+    ]);
+    const placed = autoAssignByPriority(db.tables, db.zones, displaced, busyAfter, db.groups);
+    const lines = displaced.map((o) =>
+      placed.has(o.id)
+        ? `${o.name} (${o.people} pers.) sera déplacé·e en ${tableNamesOf(placed.get(o.id))}.`
+        : `Aucune autre table libre n'a été trouvée pour ${o.name} (${o.people} pers.) : la réservation passera « à placer ».`
+    );
+    throw httpError(
+      409,
+      `${tableNamesOf(combo)} ${combo.length > 1 ? 'sont occupées' : 'est occupée'} par ${displaced.map((o) => o.name).join(', ')}.\n` +
+        `Placer ${reservation.name} ici quand même ?\n\n${lines.join('\n')}`,
+      'occupied'
+    );
+  }
+
+  const notices = placeOnChosenTables(reservation, combo, false); // les réservations délogées cherchent une autre table
   await persist();
-  res.json({ reservation, merged: combo.length > 1 });
+  res.json({ reservation, merged: combo.length > 1, notices });
 });
 
 /**

@@ -9,6 +9,41 @@ import {
 const $ = (sel, el = document) => el.querySelector(sel);
 const SNAP = 10;
 
+/* ---------- Confirmation (boîte de l'application, jamais confirm() du navigateur) ---------- */
+
+const confirmEl = document.createElement('dialog');
+confirmEl.className = 'confirm-dialog';
+confirmEl.setAttribute('aria-labelledby', 'confirmTitle');
+document.body.append(confirmEl);
+// Clic à côté de la boîte : comme « Annuler »
+confirmEl.addEventListener('click', (e) => {
+  if (e.target === confirmEl) confirmEl.close('cancel');
+});
+
+/**
+ * Demande une confirmation ; renvoie une promesse : true si l'on confirme, false sinon (Annuler, Échap, clic à côté).
+ * `message` : paragraphes séparés par une ligne vide. `danger` : action destructrice (bouton rouge).
+ */
+function confirmDialog({ title, message = '', confirmLabel = 'Confirmer', cancelLabel = 'Annuler', danger = false }) {
+  if (confirmEl.open) confirmEl.close('cancel'); // une seule question à la fois
+  const paragraphs = String(message).trim().split(/\n{2,}/).filter(Boolean)
+    .map((p) => `<p>${esc(p).replace(/\n/g, '<br />')}</p>`).join('');
+  confirmEl.innerHTML = `<form method="dialog" class="cd">
+      <h2 id="confirmTitle">${esc(title)}</h2>
+      ${paragraphs}
+      <div class="cd-actions">
+        <button type="submit" value="cancel" class="btn ghost">${esc(cancelLabel)}</button>
+        <button type="submit" value="ok" class="btn ${danger ? 'danger-fill' : 'primary'}">${esc(confirmLabel)}</button>
+      </div>
+    </form>`;
+  confirmEl.returnValue = '';
+  return new Promise((resolve) => {
+    confirmEl.addEventListener('close', () => resolve(confirmEl.returnValue === 'ok'), { once: true });
+    confirmEl.showModal();
+    confirmEl.querySelector('[value="ok"]').focus();
+  });
+}
+
 /** Préférence de cet appareil (peut être indisponible : navigation privée…). */
 function readStored(key) {
   try {
@@ -171,6 +206,8 @@ const FILTERS = [
   { id: 'expected', label: 'Attendues', test: (r) => statusOf(r) === 'expected' },
   { id: 'arrived', label: 'En salle', test: (r) => statusOf(r) === 'arrived' },
   { id: 'left', label: 'Parties', test: (r) => statusOf(r) === 'left' },
+  // Clients installés sans avoir réservé (menu d'une table libre)
+  { id: 'walkin', label: 'Sans réservation', test: (r) => Boolean(r.walkIn) },
   // Les annulées ne sont que dans leur catégorie (liste à part, voir listForFilter)
   { id: 'cancelled', label: 'Annulées', test: isCancelled },
 ];
@@ -356,15 +393,23 @@ dayServicesEl.addEventListener('click', async (e) => {
     for (const id of Object.keys(state.serviceExceptions[state.date] ?? {})) await setServiceDay(id, null);
   }
 });
-dayServicesEl.addEventListener('change', (e) => {
+dayServicesEl.addEventListener('change', async (e) => {
   const input = e.target.closest('[data-svc]');
   if (!input) return;
   const id = input.dataset.svc;
   const n = state.reservations.filter((r) => serviceOf(r.time) === id && isActive(r)).length;
   // Fermer un service qui a des réservations : elles restent, mais on prévient
-  if (!input.checked && n && !confirm(`${n} réservation${n > 1 ? 's sont prévues' : ' est prévue'} à ce service. Elles restent enregistrées, mais le service sera marqué fermé. Continuer ?`)) {
-    input.checked = true;
-    return;
+  if (!input.checked && n) {
+    const ok = await confirmDialog({
+      title: `Fermer le service « ${serviceById(id)?.label ?? id} » ce jour-là ?`,
+      message: `${n} réservation${n > 1 ? 's sont prévues' : ' est prévue'} à ce service. Elles restent enregistrées, mais le service sera marqué fermé.`,
+      confirmLabel: 'Fermer le service',
+      danger: true,
+    });
+    if (!ok) {
+      input.checked = true;
+      return;
+    }
   }
   setServiceDay(id, input.checked);
 });
@@ -649,7 +694,10 @@ function renderList() {
 
   renderFilters();
   $('#searchClear').hidden = !state.search;
-  renderTimeStrip(list);
+  // Les clients sans réservation sont à part (section à la fin), hors des créneaux de réservation
+  const booked = list.filter((r) => !r.walkIn);
+  const walkIns = list.filter((r) => r.walkIn);
+  renderTimeStrip(booked);
   // La liste est reconstruite d'un coup (fragment) et garde sa position : une mise à jour
   // (synchronisation, bouton « Arrivé »…) ne la fait pas sauter ni ne coupe un défilement en cours
   const scroll = els.resList.scrollTop;
@@ -682,13 +730,17 @@ function renderList() {
   }
 
   let currentTime = null;
-  for (const r of list) {
+  for (const r of booked) {
     // Nouvelle heure : en-tête du créneau (la liste est déjà triée par heure)
     if (r.time !== currentTime) {
       currentTime = r.time;
-      frag.append(timeHeader(r.time, list.filter((x) => x.time === r.time)));
+      frag.append(timeHeader(r.time, booked.filter((x) => x.time === r.time)));
     }
     frag.append(buildCard(r));
+  }
+  if (walkIns.length) {
+    frag.append(timeHeader(null, walkIns, 'Sans réservation'));
+    for (const r of walkIns) frag.append(buildCard(r));
   }
   els.resList.replaceChildren(frag);
   if (els.resList.scrollTop !== scroll) els.resList.scrollTop = scroll;
@@ -800,13 +852,18 @@ function renderDetail() {
   const capacity = cap(r.tableIds);
 
   const row = (icon, label, value) => `<div class="dt-row"><span class="dt-label">${icon}${label}</span><span class="dt-value">${value}</span></div>`;
+  // Table : tables, places, zone et « fixée » sur une seule ligne (le jour et l'heure sont dans l'en-tête)
+  const tableInfo = [
+    placed && status !== 'left' ? `<span class="muted">${capacity} places</span>` : '',
+    areaInline(r),
+    r.pinned ? `<span class="dt-pin" title="Fixée à sa table : décochez « Fixer à cette table » dans Modifier">${svg(LOCK, 12)}Fixée</span>` : '',
+  ].filter(Boolean).join('<span class="dt-sep">·</span>');
   const rows = [
-    row(ICONS.clock, 'Quand', `${esc(longDate(r.date))} · <b>${esc(r.time)}</b>`),
-    row(ICONS.table, 'Tables', `${tables}${placed && status !== 'left' ? ` <span class="muted">${capacity} places</span>` : ''}`),
-    areaRow(r, row),
-    r.phone ? row(ICONS.phone, 'Téléphone', `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}">${esc(r.phone)}</a>`) : '',
-    r.email ? row(ICONS.mail, 'Email', `<a class="rc-phone" href="mailto:${esc(r.email)}">${esc(r.email)}</a>`) : '',
-    r.notes ? row(ICONS.quote, 'Demande', esc(r.notes)) : '',
+    row(ICONS.table, r.tableIds.length > 1 ? 'Tables' : 'Table', `<span class="dt-tables">${tables}${tableInfo ? `<span class="dt-sep">·</span>${tableInfo}` : ''}</span>`),
+    // Champs toujours affichés, même vides : on voit tout de suite ce qu'on n'a pas
+    row(ICONS.phone, 'Téléphone', r.phone ? `<a class="rc-phone" href="tel:${esc(r.phone.replace(/\s/g, ''))}">${esc(r.phone)}</a>` : emptyValue('Pas de téléphone')),
+    row(ICONS.mail, 'Email', r.email ? `<a class="rc-phone" href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : emptyValue('Pas d’email')),
+    row(ICONS.quote, 'Demande', r.notes ? esc(r.notes) : emptyValue('Aucune demande')),
   ].join('');
 
   const note = state.noteEditing === r.id
@@ -815,20 +872,15 @@ function renderDetail() {
       ? `<p class="rc-note internal" title="Note interne (équipe)">${ICONS.pin}<span>${esc(r.internalNote)}</span></p>`
       : '';
 
-  // Toutes les actions, avec leur libellé
+  // Trois actions, en tuiles : voir sa table (ou la placer), note interne, modifier.
+  // (Annuler, fixer, changer de table, retirer du plan : dans « Modifier », ou en glissant la carte sur le plan.)
   const actions = active
     ? [
-        placed ? actionBtn('show', ICONS.table, 'Voir sa table', 'Fermer la fiche et montrer sa table sur le plan', 'primary') : '',
-        r.pinned ? '' : actionBtn('place', ICONS.table, placed ? 'Changer de table' : 'Placer sur une table', 'Toucher ensuite une table du plan'),
         placed
-          ? r.pinned
-            ? actionBtn('unpin', ICONS.lock, 'Fixée — libérer', 'Elle pourra de nouveau être déplacée ou retirée', 'pinned')
-            : actionBtn('pin', ICONS.unlock, 'Fixer à cette table', 'Elle ne sera plus déplacée ni retirée par « Auto » ou « Tout retirer »')
-          : '',
-        placed && !r.pinned ? actionBtn('unassign', ICONS.remove, 'Retirer du plan', 'La réservation repasse « à placer »') : '',
-        actionBtn('note', ICONS.note, r.internalNote ? 'Modifier la note' : 'Note interne', 'Note visible uniquement par l’équipe', r.internalNote ? 'has-note' : ''),
-        actionBtn('edit', ICONS.edit, 'Modifier', 'Nom, nombre de personnes, heure, téléphone…'),
-        actionBtn('cancel', ICONS.remove, 'Annuler la réservation', 'Elle reste visible dans « Annulées », avec son historique', 'danger'),
+          ? actionBtn('show', ICONS.table, 'Voir sa table', 'Fermer la fiche et montrer sa table sur le plan', 'primary')
+          : actionBtn('place', ICONS.table, 'Placer sur une table', 'Toucher ensuite une table du plan', 'primary'),
+        actionBtn('note', ICONS.note, 'Note interne', r.internalNote ? 'Modifier la note interne' : 'Note visible uniquement par l’équipe', r.internalNote ? 'has-note' : ''),
+        actionBtn('edit', ICONS.edit, 'Modifier', 'Nom, personnes, heure, téléphone, tables, annuler…'),
       ].join('')
     : '';
 
@@ -837,15 +889,18 @@ function renderDetail() {
       <header class="dt-head">
         <div class="dt-title">
           <h2 id="detailName">${esc(r.name)}</h2>
-          <span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${r.archived ? ' · archivée' : ''}</span>
+          <div class="dt-sub">
+            <span class="rc-status ${status}"><i class="rc-dot"></i>${STATUS_LABEL[status]}${statusTime ? ` ${statusTime}` : ''}${r.archived ? ' · archivée' : ''}</span>
+            <span class="dt-sep">·</span><span>${esc(longDate(r.date))}</span><span class="dt-sep">·</span><b>${esc(r.time)}</b>
+          </div>
         </div>
-        <span class="dt-people"><b>${r.people}</b> pers.</span>
+        <span class="dt-people"><b>${r.people}</b><span>pers.</span></span>
         <button type="button" class="icon-btn" data-detail="close" aria-label="Fermer">✕</button>
       </header>
       <div class="dt-rows">${rows}</div>
       ${note}
       ${(active || status === 'left' || status === 'cancelled') && !r.archived ? `<div class="dt-main">${mainActionHtml(r, status)}${
-        status === 'arrived' ? actionBtn('unarrive', ICONS.undo, 'Annuler l’arrivée', 'Arrivée cochée par erreur') : ''}</div>` : ''}
+        status === 'arrived' ? `<button type="button" class="dt-link" data-action="unarrive" title="Arrivée cochée par erreur">${ICONS.undo}Annuler l’arrivée</button>` : ''}</div>` : ''}
       ${actions ? `<div class="dt-actions">${actions}</div>` : ''}
       ${historyHtml(r)}
     </div>`;
@@ -859,18 +914,21 @@ function areaTag(r) {
   return `<span class="area-tag${color}" title="Zone : ${esc(area.label)}">${esc(area.label)}</span>`;
 }
 
-/** Ligne « Zone » de la fiche : zone des tables (avec sa description), et si le client l'a acceptée en ligne. */
-function areaRow(r, row) {
+/** Valeur absente dans la fiche : petit texte grisé à la place. */
+const emptyValue = (text) => `<span class="dt-empty">${esc(text)}</span>`;
+
+/** Zone, dans la ligne de la table de la fiche : son nom, et si le client l'a acceptée en ligne. */
+function areaInline(r) {
   const area = areaOfReservation(r);
   const accepted = r.areaAccepted && areasOf(state.zones).find((a) => a.id === r.areaAccepted);
   if (!area && !accepted) return '';
   const parts = [];
-  if (area) parts.push(`<b>${esc(area.label)}</b>${area.description ? ` <span class="muted">— ${esc(area.description)}</span>` : ''}`);
+  if (area) parts.push(`<b>${esc(area.label)}</b>`);
   if (accepted && accepted === area) parts.push('<span class="muted">(acceptée par le client)</span>');
   else if (accepted) parts.push(`<span class="pill todo">Le client avait accepté : ${esc(accepted.label)}</span>`);
   // Déplacé par l'équipe dans une zone que le client n'a pas acceptée : à le prévenir
   else if (area?.confirm && r.source === 'online') parts.push('<span class="pill todo">Client pas encore prévenu</span>');
-  return row(ICONS.table, 'Zone', parts.join(' '));
+  return `<span class="dt-zone">${parts.join(' ')}</span>`;
 }
 
 /* ---------- Historique d'une réservation ---------- */
@@ -925,7 +983,7 @@ function historyHtml(r) {
   if (!list.length && r.createdAt) list = [{ type: 'created', at: r.createdAt }];
   if (!list.length) return '';
   const items = [...list].reverse().map((h) => `<li class="hist-${h.type}"><time>${esc(whenLabel(h.at))}${h.by ? ` · ${esc(h.by)}` : ''}</time><span>${esc(historyLine(h))}</span></li>`);
-  return `<details class="dt-history"${list.length <= 4 ? ' open' : ''}>
+  return `<details class="dt-history">
       <summary>Historique <span class="muted">(${list.length})</span></summary>
       <ol>${items.join('')}</ol>
     </details>`;
@@ -933,7 +991,14 @@ function historyHtml(r) {
 
 /** Annule : la réservation est gardée (catégorie « Annulées », historique) et libère ses tables. */
 async function cancelReservation(r) {
-  if (!confirm(`Annuler la réservation de ${r.name} (${r.people} pers., ${r.time}) ?\nElle restera visible dans « Annulées ».`)) return false;
+  const ok = await confirmDialog({
+    title: `Annuler la réservation de ${r.name} ?`,
+    message: `${r.people} pers. à ${r.time}. Elle restera visible dans « Annulées », d'où on peut la rétablir.`,
+    confirmLabel: 'Annuler la réservation',
+    cancelLabel: 'Garder',
+    danger: true,
+  });
+  if (!ok) return false;
   try {
     replaceReservation(await api.cancelReservation(r.id));
     if (state.selectedRes === r.id) state.selectedRes = null;
@@ -1097,14 +1162,15 @@ function scrollListTo(el, where = 'start', smooth = true) {
 }
 
 /** En-tête d'un créneau horaire : heure, nombre de réservations et de couverts, combien restent à placer. */
-function timeHeader(time, group) {
+/** En-tête d'un créneau horaire, ou d'une section (`label`, ex. « Sans réservation »). */
+function timeHeader(time, group, label = null) {
   const covers = group.reduce((s, r) => s + r.people, 0);
   const todo = group.filter((r) => !r.tableIds.length && isActive(r)).length;
   const li = document.createElement('li');
-  li.className = 'time-group';
-  li.dataset.time = time;
+  li.className = `time-group${label ? ' section-group' : ''}`;
+  if (time) li.dataset.time = time;
   li.innerHTML = `
-    <span class="tg-time">${esc(time)}</span>
+    <span class="tg-time">${esc(label ?? time)}</span>
     <span class="tg-meta">${group.length} rés. · ${covers} couv.${todo ? ` · <b>${todo} à placer</b>` : ''}</span>
     <span class="tg-line"></span>`;
   return li;
@@ -1242,7 +1308,7 @@ function areaFieldsHtml(z) {
             <input type="color" data-zone-custom value="${z.color ?? '#3b82f6'}" aria-label="Autre couleur" /></label>
         </div>
       </div>
-      <label class="field"><span>Description <em>— montrée au client avant qu'il accepte, et à l'équipe</em></span>
+      <label class="field"><span>Description <em>— montrée au client en ligne avant qu'il accepte</em></span>
         <textarea name="description" rows="2" maxlength="300" placeholder="À l'étage : accès par un escalier.">${esc(z.description ?? '')}</textarea></label>
       <div class="field"><span>Jours d'ouverture</span>
         <div class="svc-days" role="group" aria-label="Jours d'ouverture de la zone">
@@ -1452,7 +1518,7 @@ function bindServicesForm() {
     else return;
     queueServicesSave();
   });
-  form.addEventListener('click', (e) => {
+  form.addEventListener('click', async (e) => {
     const day = e.target.closest('[data-day]');
     if (day) {
       const sv = rowOf(day);
@@ -1464,7 +1530,13 @@ function bindServicesForm() {
     if (e.target.closest('[data-remove]')) {
       const sv = rowOf(e.target);
       if (servicesDraft.length === 1) return toast('Il faut garder au moins un service', 'error');
-      if (!confirm(`Supprimer le service « ${sv.label} » ? Ses réservations iront au service précédent de la journée.`)) return;
+      const ok = await confirmDialog({
+        title: `Supprimer le service « ${sv.label} » ?`,
+        message: 'Ses réservations iront au service précédent de la journée.',
+        confirmLabel: 'Supprimer',
+        danger: true,
+      });
+      if (!ok) return;
       servicesDraft.splice(servicesDraft.indexOf(sv), 1);
       renderServicesForm();
       return queueServicesSave();
@@ -1598,10 +1670,7 @@ function bookingSettingsHtml() {
         <p class="muted small-note">Le nom est toujours demandé ; la demande particulière reste facultative.</p>
       </div>
 
-      <div class="row booking-save">
-        <button type="submit" class="btn primary small" disabled>Enregistrer</button>
-        <span class="muted small-note" id="bookingStatus" role="status"></span>
-      </div>
+      <p class="muted small-note booking-save" id="bookingStatus" role="status">Enregistré automatiquement à chaque changement.</p>
     </form>`;
 }
 
@@ -1616,7 +1685,6 @@ const bookingErrorText = (err) =>
 async function fillBookingForm() {
   const form = $('#bookingForm', els.settings);
   if (!form) return;
-  const save = form.querySelector('button[type="submit"]');
   try {
     bookingCache = await api.bookingSettings();
   } catch (err) {
@@ -1624,12 +1692,10 @@ async function fillBookingForm() {
     // Sans les réglages actuels, on n'affiche ni n'enregistre rien (on écraserait les vrais réglages par ceux par défaut)
     $('#bookingError', els.settings).textContent = `Impossible de charger les réglages. ${bookingErrorText(err)}`;
     form.hidden = true;
-    save.disabled = true;
     return;
   }
   $('#bookingError', els.settings).textContent = '';
   form.hidden = false;
-  save.disabled = false;
   const s = bookingCache;
   // Valeur réglée hors de la liste (ex. 90 min via l'API) : ajoutée pour ne pas la perdre
   if (!NOTICE_CHOICES.includes(s.minNoticeMinutes)) {
@@ -1647,26 +1713,60 @@ function syncBookingForm(form) {
   form.closedMessage.closest('.field').hidden = form.enabled.checked;
 }
 
+/*
+ * Enregistrement automatique (comme l'onglet Services) : listes, cases et nombres dès qu'ils changent,
+ * textes après une courte pause. Avant, il fallait cliquer « Enregistrer » : un délai choisi sans cliquer
+ * n'était jamais appliqué.
+ */
+let bookingSaveTimer = 0;
+let bookingDirty = false;
+
+function bookingData(form) {
+  const data = Object.fromEntries(['restaurantName', 'restaurantPhone', 'message', 'closedMessage'].map((k) => [k, form[k].value]));
+  for (const key of ['enabled', 'requireEmail', 'requirePhone']) data[key] = form[key].checked;
+  for (const key of ['minNoticeMinutes', 'maxDays', 'step', 'maxPeople', 'maxCoversPerSlot']) data[key] = Number(form[key].value);
+  return data;
+}
+
+/** Enregistre tout de suite ce qui a changé. Renvoie true si c'est fait (ou s'il n'y avait rien à faire). */
+async function saveBookingNow() {
+  clearTimeout(bookingSaveTimer);
+  const form = $('#bookingForm', els.settings);
+  if (!bookingDirty || !form || form.hidden) return true;
+  const status = $('#bookingStatus', form);
+  status.textContent = 'Enregistrement…';
+  try {
+    bookingCache = await api.updateBookingSettings(bookingData(form));
+    bookingDirty = false;
+    status.textContent = 'Enregistré ✓';
+    return true;
+  } catch (err) {
+    status.textContent = `Non enregistré : ${bookingErrorText(err)}`;
+    toast(bookingErrorText(err), 'error');
+    return false;
+  }
+}
+
+function queueBookingSave(delay) {
+  bookingDirty = true;
+  $('#bookingStatus', els.settings).textContent = 'Modifications en cours…';
+  clearTimeout(bookingSaveTimer);
+  bookingSaveTimer = setTimeout(saveBookingNow, delay);
+}
+
 function bindBookingForm() {
   const form = $('#bookingForm', els.settings);
+  bookingDirty = false;
   fillBookingForm();
   form.enabled.addEventListener('change', () => syncBookingForm(form));
-  form.addEventListener('input', () => ($('#bookingStatus', form).textContent = 'Modifications non enregistrées'));
-  form.addEventListener('submit', async (e) => {
+  // Texte : après une pause ; liste, case, nombre : tout de suite
+  form.addEventListener('input', (e) => {
+    if (e.target.matches('input[type="text"], input:not([type]), input[type="tel"], textarea')) queueBookingSave(900);
+  });
+  form.addEventListener('change', () => queueBookingSave(0));
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(
-      ['restaurantName', 'restaurantPhone', 'message', 'closedMessage'].map((k) => [k, form[k].value])
-    );
-    for (const key of ['enabled', 'requireEmail', 'requirePhone']) data[key] = form[key].checked;
-    for (const key of ['minNoticeMinutes', 'maxDays', 'step', 'maxPeople', 'maxCoversPerSlot']) data[key] = Number(form[key].value);
-    try {
-      bookingCache = await api.updateBookingSettings(data);
-      $('#bookingStatus', form).textContent = 'Enregistré ✓';
-      toast('Réglages de la réservation en ligne enregistrés', 'success');
-    } catch (err) {
-      $('#bookingStatus', form).textContent = `Non enregistré : ${bookingErrorText(err)}`;
-      toast(bookingErrorText(err), 'error');
-    }
+    saveBookingNow();
   });
 }
 
@@ -1744,7 +1844,13 @@ function openUserForm(u) {
   };
   form.querySelector('[data-close]').addEventListener('click', close);
   form.querySelector('[data-delete]')?.addEventListener('click', async () => {
-    if (!confirm(`Supprimer le compte de ${u.name} (${u.email}) ?\nCette personne ne pourra plus se connecter.`)) return;
+    const ok = await confirmDialog({
+      title: `Supprimer le compte de ${u.name} ?`,
+      message: `${u.email} ne pourra plus se connecter.`,
+      confirmLabel: 'Supprimer le compte',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await users.remove(u.id);
       toast(`Compte de ${u.name} supprimé`, 'success');
@@ -1861,7 +1967,13 @@ function renderSettings() {
 /** Services modifiés mais pas encore enregistrés : on enregistre, ou on demande avant de les perdre. */
 async function leaveServicesTab() {
   if (!servicesDirty || (await saveServicesNow())) return true;
-  return confirm(`Les services n'ont pas pu être enregistrés :\n${servicesStatus.text.replace(/^Non enregistré : /, '')}\n\nContinuer quand même (les modifications des services seront perdues) ?`);
+  return confirmDialog({
+    title: 'Services non enregistrés',
+    message: `${servicesStatus.text.replace(/^Non enregistré : /, '')}\n\nSi vous continuez, ces modifications des services seront perdues.`,
+    confirmLabel: 'Continuer sans enregistrer',
+    cancelLabel: 'Rester',
+    danger: true,
+  });
 }
 
 function resetServicesDraft() {
@@ -1880,6 +1992,7 @@ function openSettings(tab = settingsTab) {
 
 async function closeSettings() {
   if (settingsTab === 'services' && !(await leaveServicesTab())) return;
+  if (settingsTab === 'booking') await saveBookingNow();
   settingsEls.page.hidden = true;
   els.settings.innerHTML = '';
   resetServicesDraft();
@@ -1890,6 +2003,7 @@ settingsEls.nav.addEventListener('click', async (e) => {
   const tab = e.target.closest('[data-settings-tab]')?.dataset.settingsTab;
   if (!tab || tab === settingsTab) return;
   if (settingsTab === 'services' && !(await leaveServicesTab())) return;
+  if (settingsTab === 'booking') await saveBookingNow();
   resetServicesDraft();
   settingsTab = tab;
   renderSettings();
@@ -1903,7 +2017,7 @@ document.addEventListener('keydown', (e) => {
 function refreshSettings() {
   if (!settingsOpen() || document.activeElement?.closest?.('#settingsBody input, #settingsBody select')) return;
   if (settingsTab === 'data') fillRetentionForm(true);
-  if (settingsTab === 'booking' && !$('#bookingStatus', els.settings)?.textContent.startsWith('Modifications')) fillBookingForm();
+  if (settingsTab === 'booking' && !bookingDirty) fillBookingForm(); // jamais par-dessus une modification en cours
   if (settingsTab === 'users' && $('#userForm', els.settings)?.hidden) loadUsers();
   if (settingsTab === 'services' && !servicesDirty) {
     servicesDraft = null;
@@ -2667,6 +2781,7 @@ function tableElement(t, res) {
     if (state.formPick) return toggleFormPick(t, res);
     if (state.placing) return placeOnTable(t, res);
     if (isPhone()) return openSheet(t.id); // téléphone : fiche de la table en bas de l'écran
+    if (!res && state.date >= localDate()) return openTableMenu(t); // table libre : que faire de cette table ?
     state.selectedRes = res ? (state.selectedRes === res.id ? null : res.id) : null;
     render();
     const card = res && els.resList.querySelector(`.res-card[data-id="${res.id}"]`);
@@ -2956,6 +3071,13 @@ function onTableDragOver(e, t) {
   previewTable(t, resById(state.drag.resId));
 }
 
+/** Réservation installée sur `t` qu'on peut déloger pour `res` (ni fixée, ni clients arrivés), ou null. */
+function movableOccupant(t, res) {
+  if (closedTables().has(t.id)) return null;
+  const o = activeReservations().find((r) => r.id !== res.id && r.tableIds.includes(t.id));
+  return o && !o.pinned && statusOf(o) === 'expected' ? o : null;
+}
+
 /** Aperçu de ce que donnerait le placement de `res` sur la table `t`. */
 function previewTable(t, res) {
   if (!res || state.hover === t.id) return;
@@ -2971,6 +3093,10 @@ function previewTable(t, res) {
     // Trop petite mais libre : le dépôt proposera de choisir des tables
     tableNode(t.id)?.classList.add('drop-ask');
     showDropHint([t.id], `${t.seats} pl. pour ${res.people} — déposer pour choisir les tables`);
+  } else if (movableOccupant(t, res)) {
+    // Occupée par une réservation qu'on peut déplacer : le dépôt demandera confirmation
+    tableNode(t.id)?.classList.add('drop-ask');
+    showDropHint([t.id], `Occupée par ${movableOccupant(t, res).name} — déposer pour prendre sa place`);
   } else {
     tableNode(t.id)?.classList.add('drop-bad');
   }
@@ -3286,7 +3412,7 @@ async function removeSelection() {
   }
   const hasTables = items.some((i) => i.kind === 'table');
   const warning = hasTables ? ' Les réservations qui utilisent ces tables seront à replacer.' : '';
-  if (!confirm(`Supprimer ${describe(items)} ?${warning}`)) return;
+  if (!(await confirmDialog({ title: `Supprimer ${describe(items)} ?`, message: warning.trim(), confirmLabel: 'Supprimer', danger: true }))) return;
   try {
     for (const { kind, item } of items) {
       if (kind === 'table') {
@@ -3327,7 +3453,13 @@ async function updateRoom(size) {
 }
 
 async function clearPlan() {
-  if (!confirm('Supprimer toutes les tables et tous les éléments ? Les réservations placées seront à replacer.')) return;
+  const ok = await confirmDialog({
+    title: 'Repartir d’un plan vierge ?',
+    message: 'Toutes les tables et tous les éléments seront supprimés. Les réservations placées seront à replacer.',
+    confirmLabel: 'Tout supprimer',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     Object.assign(state, await api.clearPlan());
     state.selected = null;
@@ -3409,7 +3541,13 @@ async function addTable(preset) {
 }
 
 async function removeTable(t) {
-  if (!confirm(`Supprimer la table ${t.name} ? Les réservations qui l'utilisent seront à replacer.`)) return;
+  const ok = await confirmDialog({
+    title: `Supprimer la table ${t.name} ?`,
+    message: 'Les réservations qui l’utilisent seront à replacer.',
+    confirmLabel: 'Supprimer',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api.deleteTable(t.id);
     state.tables = state.tables.filter((x) => x.id !== t.id);
@@ -3447,11 +3585,23 @@ async function assign(resId, tableId) {
   }
   let placed = false;
   try {
-    const { reservation } = await api.assign(resId, tableId);
-    replaceReservation(reservation);
+    let result;
+    try {
+      result = await api.assign(resId, tableId);
+    } catch (err) {
+      // Table déjà occupée : on demande, en disant ce que devient l'autre réservation
+      if (err.reason !== 'occupied') throw err;
+      const ok = await confirmDialog({ title: 'Table occupée', message: err.message, confirmLabel: 'Prendre la table' });
+      if (!ok) return render();
+      result = await api.assign(resId, tableId, { allowDisplace: true });
+    }
+    const { reservation, notices = [] } = result;
+    // Les réservations délogées ont changé de table (ou passent « à placer ») : on recharge le service
+    if (notices.length) await loadReservations();
+    else replaceReservation(reservation);
     state.selectedRes = reservation.id;
     placed = true;
-    toast(`${reservation.name} placé·e en ${tableNames(reservation)}`, 'success');
+    toast([`${reservation.name} placé·e en ${tableNames(resById(reservation.id) ?? reservation)}`, ...notices].join('\n'), 'success');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -3605,6 +3755,7 @@ function renderSheet() {
     sheet.append(list);
   } else {
     const todo = activeReservations().filter((r) => !r.tableIds.length && !r.archived);
+    if (state.date >= localDate()) sheet.insertAdjacentHTML('beforeend', freeTableActionsHtml(t));
     sheet.insertAdjacentHTML(
       'beforeend',
       todo.length
@@ -3620,6 +3771,7 @@ function renderSheet() {
 
 $('#tableSheet').addEventListener('click', (e) => {
   if (e.target.closest('[data-sheet="close"]')) return closeSheet();
+  if (freeTableAction(e, tableById(state.sheetTable), closeSheet)) return;
   const pick = e.target.closest('[data-pick]');
   if (pick) {
     const tableId = state.sheetTable;
@@ -3629,14 +3781,129 @@ $('#tableSheet').addEventListener('click', (e) => {
 });
 $('#sheetBackdrop').addEventListener('click', closeSheet);
 
+/* ---------- Table libre : clients sans réservation, nouvelle réservation ---------- */
+
+const tableMenuEl = $('#tableMenu');
+let tableMenuId = null;
+
+/** Les clients sans réservation s'installent maintenant : seulement pour le service en cours, aujourd'hui. */
+const nowHhmm = () => new Date().toTimeString().slice(0, 5);
+/**
+ * Heure enregistrée pour des clients sans réservation / une table occupée, dans le service affiché :
+ * maintenant, ou le début du service s'il n'a pas encore commencé (on prépare le service suivant).
+ */
+const walkInTime = () => {
+  const start = serviceById(state.service)?.start ?? nowHhmm();
+  return nowHhmm() < start ? start : nowHhmm();
+};
+/** Aujourd'hui, pour un service en cours ou à venir (pas un service déjà terminé). */
+const walkInPossible = () => state.date === localDate() && serviceOf(walkInTime()) === state.service;
+
+/** Choix pour une table libre (menu sur ordinateur, fiche du bas sur téléphone). */
+function freeTableActionsHtml(t) {
+  const walkIn = walkInPossible()
+    ? `<div class="tm-walkin">
+        <div class="tm-label">Clients sans réservation</div>
+        <div class="tm-row">
+          <div class="tm-stepper" role="group" aria-label="Nombre de personnes">
+            <button type="button" class="icon-btn small" data-tm="less" aria-label="Une personne de moins">−</button>
+            <output data-tm-people>${t.seats}</output><span class="muted">pers.</span>
+            <button type="button" class="icon-btn small" data-tm="more" aria-label="Une personne de plus">+</button>
+          </div>
+          <button type="button" class="rc-btn primary tm-install" data-tm="walkin">${ICONS.check}<span>Installer maintenant</span></button>
+        </div>
+        <p class="muted small-note">La table est aussitôt marquée occupée (clients arrivés à ${nowHhmm()}). Le nom peut être ajouté ensuite dans la fiche.</p>
+      </div>`
+    : '<p class="muted small-note">Clients sans réservation : seulement aujourd’hui, pour un service en cours ou à venir.</p>';
+  return `<div class="tm-actions">
+      ${walkIn}
+      <button type="button" class="rc-btn tm-new" data-tm="new">${ICONS.edit}<span>Nouvelle réservation à cette table</span></button>
+    </div>`;
+}
+
+/** Gère un clic dans ces choix. Renvoie true si le clic était pour eux. */
+function freeTableAction(e, t, close) {
+  const btn = e.target.closest('[data-tm]');
+  if (!btn || !t) return false;
+  const box = btn.closest('.tm-actions');
+  const out = box.querySelector('[data-tm-people]');
+  const action = btn.dataset.tm;
+  if (action === 'less' || action === 'more') {
+    out.value = out.textContent = String(Math.min(50, Math.max(1, Number(out.textContent) + (action === 'more' ? 1 : -1))));
+    return true;
+  }
+  close();
+  if (action === 'new') {
+    openDialog();
+    els.form.tables.value = t.name; // table choisie d'avance (modifiable)
+    els.form.people.value = Math.min(t.seats, Number(els.form.people.value) || 2);
+  }
+  if (action === 'walkin') seatWalkIn(t, Number(out.textContent));
+  return true;
+}
+
+/** Clients sans réservation : réservation créée maintenant, à cette table, déjà « arrivés ». */
+async function seatWalkIn(t, people) {
+  try {
+    const r = await api.createReservation({
+      name: 'Sans réservation',
+      people,
+      date: state.date,
+      time: walkInTime(),
+      tables: t.name,
+      arrived: true,
+      // la table est choisie à la main : on accepte de se serrer, même hors des horaires de réservation
+      allowTight: true,
+      allowLate: true,
+      allowClosed: true,
+    });
+    state.reservations.push(r);
+    state.selectedRes = r.id;
+    toast(`${t.name} occupée : ${people} personne${people > 1 ? 's' : ''} sans réservation`, 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  render();
+}
+
+function openTableMenu(t) {
+  tableMenuId = t.id;
+  state.selectedRes = null;
+  const todo = activeReservations().filter((r) => !r.tableIds.length && !r.archived);
+  tableMenuEl.innerHTML = `<div class="dt">
+      <div class="dt-head">
+        <div class="dt-title"><h2 id="tableMenuTitle">${esc(t.name)}</h2><span class="muted">${t.seats} places · libre</span></div>
+        <button type="button" class="icon-btn" data-tm-close aria-label="Fermer">✕</button>
+      </div>
+      ${freeTableActionsHtml(t)}
+      ${todo.length ? `<div class="tm-label">Ou y placer une réservation en attente</div>
+        <div class="sheet-picks">${todo.map((r) => `<button type="button" class="pick${r.people > t.seats ? ' tight' : ''}" data-pick="${r.id}">
+          <span class="pick-time">${esc(r.time)}</span><span class="pick-name">${esc(r.name)}</span><b>${r.people} pers.</b></button>`).join('')}</div>` : ''}
+    </div>`;
+  if (!tableMenuEl.open) tableMenuEl.showModal();
+  render();
+}
+const closeTableMenu = () => tableMenuEl.open && tableMenuEl.close();
+tableMenuEl.addEventListener('click', (e) => {
+  if (e.target === tableMenuEl || e.target.closest('[data-tm-close]')) return closeTableMenu();
+  const t = tableById(tableMenuId);
+  if (freeTableAction(e, t, closeTableMenu)) return;
+  const pick = e.target.closest('[data-pick]');
+  if (pick && t) {
+    closeTableMenu();
+    assign(pick.dataset.pick, t.id);
+  }
+});
+
 /* ---------- Placement en touchant une table (tablette) ---------- */
 
 /** Toucher une table pendant le mode placement : y place la réservation (fusion ou choix des tables si besoin). */
 function placeOnTable(t, occupant) {
   const resId = state.placing;
   if (occupant && occupant.id !== resId) {
-    toast(`${t.name} est occupée par ${occupant.name}`, 'error');
-    return;
+    // Table occupée : comme un glisser-déposer, on propose de prendre sa place (l'autre réservation est déplacée)
+    state.placing = null;
+    return assign(resId, t.id);
   }
   state.placing = null;
   if (occupant) {
@@ -3842,9 +4109,14 @@ async function unassignAll() {
     return;
   }
   const kept = placed.length - removable.length;
-  const msg = `Retirer ${removable.length} réservation${removable.length > 1 ? 's' : ''} du plan (service du ${state.service}) ?` +
-    `${kept ? `\n${kept} restent en place : fixées ou clients déjà installés.` : ''}`;
-  if (!confirm(msg)) return;
+  const ok = await confirmDialog({
+    title: `Retirer ${removable.length} réservation${removable.length > 1 ? 's' : ''} du plan ?`,
+    message: `Service « ${serviceById(state.service)?.label ?? state.service} » : elles repasseront « à placer ».` +
+      (kept ? `\n${kept} reste${kept > 1 ? 'nt' : ''} en place : fixée${kept > 1 ? 's' : ''} ou clients déjà installés.` : ''),
+    confirmLabel: 'Tout retirer',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     const { cleared, reservations } = await api.unassignAll(state.date, state.service);
     reservations.forEach(replaceReservation);
@@ -3978,7 +4250,43 @@ function renderPickBar() {
 
 $('#pickOnPlan').addEventListener('click', startFormPick);
 // Calendriers : un point par service ouvert (matin, midi, soir…), coloré selon le remplissage
-initPickers({ dayInfo: (from, to) => api.summary(from, to) });
+initPickers({ dayInfo: (from, to) => api.summary(from, to), timeSlots: formTimeSlots });
+
+/**
+ * Créneaux du sélecteur d'heure du formulaire : ceux proposés aux clients sur la page de réservation
+ * (services ouverts ce jour-là, de leur début à leur dernière heure, au pas réglé), les heures passées grisées,
+ * et les couverts déjà réservés sur chaque créneau (quand le jour est celui affiché).
+ * Autres champs d'heure (réglages des services) : null → liste générique.
+ */
+function formTimeSlots(input) {
+  if (input.id !== 'resTime') return null;
+  const date = els.form.date.value || state.date;
+  const step = bookingCache?.step ?? 15;
+  const now = new Date();
+  const today = localDate(now);
+  const nowHm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const covers = new Map();
+  if (date === state.date) {
+    for (const r of state.reservations) {
+      if (r.id !== editingId && isActive(r) && !r.walkIn) covers.set(r.time, (covers.get(r.time) ?? 0) + r.people);
+    }
+  }
+  const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const toHm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const groups = getServices()
+    .filter((s) => isOpen(s.id, date))
+    .map((s) => {
+      const slots = [];
+      for (let m = toMin(s.start); m <= toMin(s.end ?? s.start); m += step) {
+        const time = toHm(m);
+        const past = date < today || (date === today && time < nowHm);
+        const n = covers.get(time);
+        slots.push({ time, disabled: past, title: past ? 'Heure passée' : '', note: n ? `${n} couv.` : '' });
+      }
+      return { label: s.label, range: `${s.start} – ${s.end ?? s.start}`, slots };
+    });
+  return groups.length ? groups : [{ label: 'Aucun service ouvert ce jour-là', range: '', slots: [], empty: 'Tapez l’heure au clavier ci-dessus.' }];
+}
 
 /** Confirmations données dans le formulaire ouvert (« placer quand même »…), oubliées à la réouverture. */
 const confirmed = new Set();
@@ -3988,6 +4296,9 @@ function openDialog(r = null) {
   confirmed.clear();
   const f = els.form;
   $('#resDialogTitle').textContent = r ? 'Modifier la réservation' : 'Nouvelle réservation';
+  // Sous le titre : ce qu'on modifie (nom, personnes, jour et heure d'origine)
+  $('#resDialogSub').textContent = r ? `${r.name} · ${r.people} pers. · ${longDate(r.date)} à ${r.time}` : '';
+  $('#saveRes').textContent = r ? 'Enregistrer' : 'Créer la réservation';
   f.name.value = r?.name ?? '';
   f.people.value = r?.people ?? 2;
   f.date.value = r?.date ?? state.date;
@@ -3998,14 +4309,34 @@ function openDialog(r = null) {
   f.internalNote.value = r?.internalNote ?? '';
   f.tables.value = r ? tableNames(r) : '';
   f.pinned.checked = Boolean(r?.pinned);
+  updatePeopleStepper();
   refreshPickers(f); // boutons date / heure (sélecteurs maison)
   updateTimeHint();
   $('#formError').textContent = '';
   $('#noTableBox').hidden = true;
   $('#deleteRes').hidden = !r || isCancelled(r); // annulée : on la rétablit depuis sa fiche
   els.dialog.showModal();
-  f.name.focus();
+  els.dialog.querySelector('.rf-body').scrollTop = 0;
+  // Nouvelle : on tape tout de suite le nom ; modifier : pas de clavier ni de focus sur la croix
+  if (r) els.dialog.querySelector('.rf-body').focus();
+  else f.name.focus();
+  // Créneaux du sélecteur d'heure : au pas réglé pour la réservation en ligne (15 min par défaut)
+  if (!bookingCache) api.bookingSettings().then((b) => (bookingCache ??= b), () => {});
 }
+
+/** Personnes : boutons − / + (de 1 à 50). */
+function updatePeopleStepper() {
+  const n = Number(els.form.people.value) || 0;
+  els.form.querySelector('[data-people-step="-1"]').disabled = n <= 1;
+  els.form.querySelector('[data-people-step="1"]').disabled = n >= 50;
+}
+els.form.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-people-step]');
+  if (!btn) return;
+  const input = els.form.people;
+  input.value = Math.min(50, Math.max(1, (Number(input.value) || 0) + Number(btn.dataset.peopleStep)));
+  input.dispatchEvent(new Event('input', { bubbles: true })); // comme une saisie : les confirmations sont à redemander
+});
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -4068,6 +4399,7 @@ els.form.addEventListener('submit', async (e) => {
 $('#noTablePick').addEventListener('click', startFormPick);
 // Une confirmation vaut pour ce qu'on a vu : si on change la table, le nombre, la date ou l'heure, on redemande
 els.form.addEventListener('input', (e) => {
+  if (e.target.name === 'people') updatePeopleStepper();
   if (!['tables', 'people'].includes(e.target.name)) return;
   confirmed.clear();
   $('#noTableBox').hidden = true;

@@ -145,6 +145,8 @@
   </main>
 
   <!-- Téléphone : fiche de la table touchée sur le plan -->
+  <!-- Ordinateur / tablette : menu d'une table libre (clients sans réservation, nouvelle réservation…) -->
+  <dialog id="tableMenu" class="detail table-menu" aria-labelledby="tableMenuTitle"></dialog>
   <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
   <section class="sheet" id="tableSheet" hidden aria-live="polite"></section>
 
@@ -181,74 +183,102 @@
   <!-- Services d'une date : ouvrir / fermer pour ce jour-là -->
   <dialog id="dayServices" class="detail" aria-labelledby="dayServicesTitle"></dialog>
 
-  <dialog id="resDialog">
+  <dialog id="resDialog" class="res-dialog">
     <form id="resForm" novalidate>
-      <h2 id="resDialogTitle">Nouvelle réservation</h2>
-      <label class="field">
-        <span>Nom</span>
-        <input name="name" required autocomplete="off" />
-      </label>
-      <div class="row">
-        <label class="field">
-          <span>Personnes</span>
-          <input name="people" type="number" min="1" max="50" value="2" required />
-        </label>
-        <div class="field">
-          <span>Date</span>
-          <input type="hidden" name="date" id="resDate" />
-          <button type="button" class="picker-btn" data-picker="date" data-for="resDate" data-format="medium" data-dots><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+      <header class="rf-head">
+        <div class="rf-title">
+          <h2 id="resDialogTitle">Nouvelle réservation</h2>
+          <p class="rf-sub" id="resDialogSub"></p>
         </div>
-        <div class="field">
-          <span>Heure</span>
-          <input type="hidden" name="time" id="resTime" />
-          <button type="button" class="picker-btn" data-picker="time" data-for="resTime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span></span></button>
+        <button type="button" class="icon-btn" id="cancelRes" aria-label="Fermer sans enregistrer" title="Fermer sans enregistrer">✕</button>
+      </header>
+      <div class="rf-body" tabindex="-1">
+        <!-- Quand et combien : en premier, c'est ce qui décide de la table -->
+        <section class="rf-section">
+          <h3>Quand</h3>
+          <div class="rf-when">
+            <div class="field rf-people">
+              <span>Personnes</span>
+              <div class="stepper">
+                <button type="button" data-people-step="-1" aria-label="Une personne de moins">−</button>
+                <input name="people" type="number" min="1" max="50" value="2" required inputmode="numeric" aria-label="Nombre de personnes" />
+                <button type="button" data-people-step="1" aria-label="Une personne de plus">+</button>
+              </div>
+            </div>
+            <div class="field rf-date">
+              <span>Date</span>
+              <input type="hidden" name="date" id="resDate" />
+              <button type="button" class="picker-btn" data-picker="date" data-for="resDate" data-format="medium" data-dots><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span></span></button>
+            </div>
+            <div class="field rf-time">
+              <span>Heure</span>
+              <input type="hidden" name="time" id="resTime" />
+              <button type="button" class="picker-btn" data-picker="time" data-for="resTime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span></span></button>
+            </div>
+          </div>
           <em class="time-hint" id="timeHint"></em>
+        </section>
+
+        <section class="rf-section">
+          <h3>Client</h3>
+          <label class="field">
+            <span>Nom</span>
+            <input name="name" required autocomplete="off" placeholder="Nom du client" />
+          </label>
+          <div class="row">
+            <label class="field">
+              <span>Téléphone</span>
+              <input name="phone" type="tel" autocomplete="off" placeholder="06 12 34 56 78" />
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input name="email" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="facultatif" />
+            </label>
+          </div>
+        </section>
+
+        <section class="rf-section">
+          <h3>Table</h3>
+          <div class="row table-row">
+            <label class="field">
+              <span>Tables</span>
+              <input name="tables" autocomplete="off" placeholder="Automatique (ex. 12, 66-70)" />
+            </label>
+            <button type="button" class="btn ghost pick-btn" id="pickOnPlan" title="Voir le plan de ce service et toucher les tables à attribuer">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+              Sur le plan
+            </button>
+          </div>
+          <label class="switch rf-pin"><input type="checkbox" name="pinned" /><span></span><b>Fixer à cette table</b><em>« Auto » et « Tout retirer » ne la déplaceront pas</em></label>
+        </section>
+
+        <section class="rf-section">
+          <h3>Notes</h3>
+          <label class="field">
+            <span>Demande du client</span>
+            <textarea name="notes" rows="2" placeholder="Anniversaire, chaise bébé, allergie…"></textarea>
+          </label>
+          <label class="field internal-field">
+            <span>Note interne <em>— visible uniquement par l'équipe</em></span>
+            <textarea name="internalNote" rows="2" placeholder="Habitué, client exigeant, acompte versé…"></textarea>
+          </label>
+        </section>
+
+        <p class="form-error" id="formError" role="alert"></p>
+        <!-- Aucune table libre : la réservation n'est pas enregistrée, on propose la suite -->
+        <div class="no-table" id="noTableBox" hidden>
+          <p id="noTableText"></p>
+          <div class="no-table-actions">
+            <button type="button" class="btn ghost small" id="noTablePick">Choisir sur le plan</button>
+            <button type="button" class="btn small no-table-save" id="noTableSave">Enregistrer sans table</button>
+          </div>
         </div>
       </div>
-      <div class="row table-row">
-        <label class="field">
-          <span>Tables <em>— vide : choisie automatiquement</em></span>
-          <input name="tables" autocomplete="off" placeholder="ex. 12, 66-70" />
-        </label>
-        <button type="button" class="btn ghost pick-btn" id="pickOnPlan" title="Voir le plan de ce service et toucher les tables à attribuer">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
-          Sur le plan
-        </button>
-        <label class="switch"><input type="checkbox" name="pinned" /><span></span>Fixer à cette table</label>
-      </div>
-      <div class="row">
-        <label class="field">
-          <span>Téléphone</span>
-          <input name="phone" type="tel" autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>Email</span>
-          <input name="email" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" />
-        </label>
-      </div>
-      <label class="field">
-        <span>Demande du client</span>
-        <textarea name="notes" rows="2" placeholder="Anniversaire, chaise bébé, allergie…"></textarea>
-      </label>
-      <label class="field internal-field">
-        <span>Note interne <em>— visible uniquement par l'équipe</em></span>
-        <textarea name="internalNote" rows="2" placeholder="Habitué, client exigeant, acompte versé…"></textarea>
-      </label>
-      <p class="form-error" id="formError"></p>
-      <!-- Aucune table libre : la réservation n'est pas enregistrée, on propose la suite -->
-      <div class="no-table" id="noTableBox" hidden>
-        <p id="noTableText"></p>
-        <div class="no-table-actions">
-          <button type="button" class="btn ghost small" id="noTablePick">Choisir sur le plan</button>
-          <button type="button" class="btn small no-table-save" id="noTableSave">Enregistrer sans table</button>
-        </div>
-      </div>
-      <div class="dialog-actions">
+      <footer class="dialog-actions rf-foot">
         <button type="button" class="btn danger ghost" id="deleteRes">Annuler la réservation</button>
         <span class="spacer"></span>
-        <button type="button" class="btn ghost" id="cancelRes">Annuler</button>
-        <button type="submit" class="btn primary">Enregistrer</button>
-      </div>
+        <button type="submit" class="btn primary rf-save" id="saveRes">Enregistrer</button>
+      </footer>
     </form>
   </dialog>
 
